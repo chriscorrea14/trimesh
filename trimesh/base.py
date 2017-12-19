@@ -529,7 +529,7 @@ class Trimesh(object):
 
     @center_mass.setter
     def center_mass(self, cm):
-        self._data['center_mass'] = cm
+        self._center_mass = cm
         self._cache.delete('mass_properties')
 
     @property
