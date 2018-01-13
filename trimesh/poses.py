@@ -6,7 +6,8 @@ from .triangles import points_to_barycentric
 
 
 def compute_stable_poses(mesh, center_mass=None,
-                         sigma=0.0, n_samples=1, threshold=0.0):
+                         sigma=0.0, n_samples=1, threshold=0.0,
+                         max_num_iters=100000):
     '''
     Computes stable orientations of a mesh and their quasi-static probabilites.
 
@@ -33,6 +34,7 @@ def compute_stable_poses(mesh, center_mass=None,
     n_samples: int,            the number of samples of the center of mass loc
     threshold: float,          the probability value at which to threshold
                                returned stable poses
+    max_num_iters: int,        the maximum number of iterations
 
     Returns
     -------
@@ -68,13 +70,13 @@ def compute_stable_poses(mesh, center_mass=None,
 
     # For each sample, compute the stable poses
     for sample_com in sample_coms:
-
         # Create toppling digraph
         dg = _create_topple_graph(cvh, sample_com)
-
+        
         # Propogate probabilites to sink nodes with a breadth-first traversal
         nodes = [n for n in dg.nodes() if dg.in_degree(n) == 0]
-        while len(nodes) > 0:
+        num_iters = 0
+        while len(nodes) > 0 and num_iters < max_num_iters:
             new_nodes = []
             for node in nodes:
                 if dg.out_degree(node) == 0:
@@ -84,7 +86,8 @@ def compute_stable_poses(mesh, center_mass=None,
                 dg.node[node]['prob'] = 0.0
                 new_nodes.append(successor)
             nodes = new_nodes
-
+            num_iters += 1
+            
         # Collect stable poses
         poses = []
         for node in dg.nodes():

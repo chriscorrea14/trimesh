@@ -1548,7 +1548,7 @@ class Trimesh(object):
                                                         matrix)
 
         if self._center_mass is not None:
-            self._center_mass = transformations.transform_points([self._center_mass], matrix)
+            self._center_mass = transformations.transform_points(np.array([self._center_mass,]), matrix)[0]
 
         # force generation of face normals so we can check against them
         new_normals = np.dot(matrix[0:3, 0:3], self.face_normals.T).T
