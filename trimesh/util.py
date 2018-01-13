@@ -11,6 +11,7 @@ import numpy as np
 import collections
 import logging
 import hashlib
+import zipfile
 import base64
 import time
 import copy
@@ -20,8 +21,8 @@ import zlib
 from sys import version_info
 from functools import wraps
 
-_PY3 = version_info.major >= 3
-if _PY3:
+PY3 = version_info.major >= 3
+if PY3:
     basestring = str
     from io import BytesIO, StringIO
 else:
@@ -111,8 +112,9 @@ def is_sequence(obj):
            hasattr(obj, "__getitem__") or
            hasattr(obj, "__iter__"))
 
-    seq = seq and not isinstance(obj, dict)
-    seq = seq and not isinstance(obj, set)
+    seq = seq and all(not isinstance(obj, i) for i in (dict,
+                                                       set,
+                                                       basestring))
 
     # numpy sometimes returns objects that are single float64 values
     # but sure look like sequences, so we check the shape
@@ -408,15 +410,6 @@ def grid_linspace(bounds, count):
     return grid
 
 
-def replace_references(data, reference_dict):
-    # Replace references in place
-    view = np.array(data).view().reshape((-1))
-    for i, value in enumerate(view):
-        if value in reference_dict:
-            view[i] = reference_dict[value]
-    return view
-
-
 def multi_dict(pairs):
     '''
     Given a set of key value pairs, create a dictionary.
@@ -575,46 +568,81 @@ def md5_array(array, digits=5):
     return md5
 
 
-def attach_to_log(log_level=logging.DEBUG,
+def attach_to_log(level=logging.DEBUG,
                   handler=None,
-                  blacklist=['TerminalIPythonApp', 'PYREADLINE']):
+                  loggers=None,
+                  colors=True,
+                  blacklist=['TerminalIPythonApp',
+                             'PYREADLINE',
+                             'shapely.geos',
+                             'shapely.speedups._speedups']):
     '''
     Attach a stream handler to all loggers.
-    '''
-    try:
-        from colorlog import ColoredFormatter
-        formatter = ColoredFormatter(
-            ("%(log_color)s%(levelname)-8s%(reset)s " +
-             "%(filename)17s:%(lineno)-4s  %(blue)4s%(message)s"),
-            datefmt=None,
-            reset=True,
-            log_colors={'DEBUG': 'cyan',
-                        'INFO': 'green',
-                        'WARNING': 'yellow',
-                        'ERROR': 'red',
-                        'CRITICAL': 'red'})
-    except ImportError:
-        formatter = logging.Formatter(
-            "[%(asctime)s] %(levelname)-7s (%(filename)s:%(lineno)3s) %(message)s",
-            "%Y-%m-%d %H:%M:%S")
 
+    Parameters
+    ------------
+    level:     logging level
+    handler:   log handler object
+    loggers:   list of loggers to attach to
+                 if None, will try to attach to all available
+    colors:    bool, if True try to use colorlog formatter
+    blacklist: list of str, names of loggers NOT to attach to
+    '''
+    formatter = logging.Formatter(
+        "[%(asctime)s] %(levelname)-7s (%(filename)s:%(lineno)3s) %(message)s",
+        "%Y-%m-%d %H:%M:%S")
+    if colors:
+        try:
+            from colorlog import ColoredFormatter
+            formatter = ColoredFormatter(
+                ("%(log_color)s%(levelname)-8s%(reset)s " +
+                 "%(filename)17s:%(lineno)-4s  %(blue)4s%(message)s"),
+                datefmt=None,
+                reset=True,
+                log_colors={'DEBUG': 'cyan',
+                            'INFO': 'green',
+                            'WARNING': 'yellow',
+                            'ERROR': 'red',
+                            'CRITICAL': 'red'})
+        except ImportError:
+            pass
+
+    # if no handler was passed, use a StreamHandler
     if handler is None:
         handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-    handler.setLevel(log_level)
 
-    for logger in logging.Logger.manager.loggerDict.values():
+    # add the formatters and set the level
+    handler.setFormatter(formatter)
+    handler.setLevel(level)
+
+    # if nothing passed, use all available loggers
+    if loggers is None:
+        loggers = logging.Logger.manager.loggerDict.values()
+
+    for logger in loggers:
         if (logger.__class__.__name__ != 'Logger' or
                 logger.name in blacklist):
             continue
         logger.addHandler(handler)
-        logger.setLevel(log_level)
+        logger.setLevel(level)
     np.set_printoptions(precision=5, suppress=True)
 
 
 def tracked_array(array, dtype=None):
     '''
     Properly subclass a numpy ndarray to track changes.
+
+    Avoids some pitfalls of subclassing by forcing contiguous
+    arrays, and does a view into a TrackedArray.
+
+    Parameters
+    ------------
+    array: array- like object to be turned into a TrackedArray
+    dtype: which dtype to use for the array
+
+    Returns
+    ------------
+    tracked: TrackedArray, of input array data
     '''
     tracked = np.ascontiguousarray(array,
                                    dtype=dtype).view(TrackedArray)
@@ -1005,7 +1033,8 @@ def append_faces(vertices_seq, faces_seq):
 def array_to_string(array,
                     col_delim=' ',
                     row_delim='\n',
-                    digits=8):
+                    digits=8,
+                    value_format='{}'):
     '''
     Convert a 1 or 2D array into a string with a specified number of digits
     and delimiter.
@@ -1027,18 +1056,23 @@ def array_to_string(array,
     digits = int(digits)
     row_delim = str(row_delim)
     col_delim = str(col_delim)
+    value_format = str(value_format)
 
     # abort for non- flat arrays
     if len(array.shape) > 2:
-        raise ValueError('conversion only works on 1D/2D arrays, not %s!',
+        raise ValueError('conversion only works on 1D/2D arrays not %s!',
                          str(array.shape))
 
-    # integer types don't need a specified precision
+    # allow a value to be repeated in a value format
+    repeats = value_format.count('{}')
+
     if array.dtype.kind == 'i':
-        format_str = '{}' + col_delim
-    # for floats use the number of digits we were passed
+        # integer types don't need a specified precision
+        format_str = value_format + col_delim
     elif array.dtype.kind == 'f':
-        format_str = '{:.' + str(digits) + 'f}' + col_delim
+        # add the digits formatting to floats
+        format_str = value_format.replace('{}',
+                                          '{:.' + str(digits) + 'f}') + col_delim
     else:
         raise ValueError('dtype %s not convertable!',
                          array.dtype.name)
@@ -1048,14 +1082,20 @@ def array_to_string(array,
     # if we have a 2D array add a row delimiter
     if len(array.shape) == 2:
         format_str *= array.shape[1]
-        format_str += row_delim
-        end_junk += len(row_delim)
+        # cut off the last column delimeter and add a row delimiter
+        format_str = format_str[:-len(col_delim)] + row_delim
+        end_junk = len(row_delim)
 
     # expand format string to whole array
     format_str *= len(array)
 
+    # if an array is repeated in the value format
+    # do the shaping here so we don't need to specify indexes
+    shaped = np.tile(array.reshape((-1, 1)),
+                     (1, repeats)).reshape(-1)
+
     # run the format operation and remove the extra delimiters
-    formatted = format_str.format(*array.reshape(-1))[:-end_junk]
+    formatted = format_str.format(*shaped)[:-end_junk]
 
     return formatted
 
@@ -1525,7 +1565,7 @@ def wrap_as_stream(item):
     ---------
     wrapped: file-like object
     '''
-    if not _PY3:
+    if not PY3:
         return StringIO(item)
     if isinstance(item, str):
         return StringIO(item)
@@ -1688,7 +1728,6 @@ def decompress(file_obj, file_type):
     '''
 
     def is_zip():
-        import zipfile
         archive = zipfile.ZipFile(file_obj)
         result = {name: wrap_as_stream(archive.read(name))
                   for name in archive.namelist()}
@@ -1702,12 +1741,41 @@ def decompress(file_obj, file_type):
         return result
 
     file_type = str(file_type).lower()
+    if isinstance(file_obj, bytes):
+        file_obj = wrap_as_stream(file_obj)
+
 
     if file_type[-3:] == 'zip':
         return is_zip()
     if 'tar' in file_type[-6:]:
         return is_tar()
     raise ValueError('Unsupported type passed!')
+
+def compress(info):
+    '''
+    Compress data stored in a dict. 
+
+    Parameters
+    -----------
+    info: dict, {name in archive: bytes or file-like object}
+
+    Returns
+    -----------
+    compressed: bytes
+    '''
+    if PY3:
+        file_obj = BytesIO()
+    else:
+        file_obj = StringIO()
+
+    with zipfile.ZipFile(file_obj, 'w') as zipper:
+        for name, data in info.items():
+            if hasattr(data, 'read'):
+                data = data.read()
+            zipper.writestr(name, data)
+    file_obj.seek(0)
+    compressed = file_obj.read()
+    return compressed
 
 
 def split_extension(file_name, special=['tar.bz2', 'tar.gz']):
@@ -1752,7 +1820,7 @@ def triangle_strips_to_faces(strips):
 
     Parameters
     ------------
-    strips: (n,) list of (m,) int vertetex indices
+    strips: (n,) list of (m,) int vertex indices
 
     Returns
     ------------
@@ -1826,7 +1894,7 @@ def write_encoded(file_obj, stuff, encoding='utf-8'):
     string_stuff = isinstance(stuff, basestring)
     binary_stuff = isinstance(stuff, bytes)
 
-    if not _PY3:
+    if not PY3:
         file_obj.write(stuff)
     elif binary_file and string_stuff:
         file_obj.write(stuff.encode(encoding))

@@ -20,10 +20,15 @@ class Entity(object):
 
     def __init__(self,
                  points,
-                 closed=None):
+                 closed=None,
+                 layer=None,
+                 **kwargs):
+
         self.points = np.asanyarray(points)
         if closed is not None:
             self.closed = closed
+        self.layer = layer
+        self.kwargs = kwargs
 
     @property
     def _class_id(self):
@@ -56,13 +61,6 @@ class Entity(object):
         return {'type': self.__class__.__name__,
                 'points': self.points.tolist(),
                 'closed': self.closed}
-
-    def rereference(self, replacement):
-        '''
-        Given a replacement dictionary, change points to reflect the dictionary.
-        eg, if replacement = {0:107}, self.points = [0,1902] becomes [107, 1902]
-        '''
-        self.points = util.replace_references(self.points, replacement)
 
     @property
     def closed(self):
@@ -292,15 +290,23 @@ class Curve(Entity):
 
 class Bezier(Curve):
 
-    def discrete(self, vertices, scale=1.0):
-        return discretize_bezier(vertices[self.points], scale=scale)
+    def discrete(self, vertices, scale=1.0, count=None):
+        return discretize_bezier(vertices[self.points],
+                                 count=count,
+                                 scale=scale)
 
 
 class BSpline(Curve):
 
-    def __init__(self, points, knots, closed=None):
+    def __init__(self, points,
+                 knots,
+                 closed=None,
+                 layer=None,
+                 **kwargs):
         self.points = points
         self.knots = knots
+        self.layer = layer
+        self.kwargs = kwargs
 
     def discrete(self, vertices, count=None, scale=1.0):
         result = discretize_bspline(control=vertices[self.points],

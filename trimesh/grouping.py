@@ -4,6 +4,7 @@ import networkx as nx
 from . import util
 
 from .constants import log, tol
+
 from collections import deque
 
 try:
@@ -19,23 +20,6 @@ def merge_vertices_hash(mesh):
     '''
     unique, inverse = unique_rows(mesh.vertices)
     mesh.update_vertices(unique, inverse)
-
-
-def replace_references(data, reference_dict):
-    '''
-    Replace elements in an array as per a dictionary of replacement values.
-
-    Parameters
-    ----------
-    data:           numpy array
-    reference_dict: dictionary of replacement value mapping, eg: {2:1, 3:1, 4:5}
-    '''
-    shape = np.shape(data)
-    view = np.array(data).view().reshape((-1))
-    for i, value in enumerate(view):
-        if value in reference_dict:
-            view[i] = reference_dict[value]
-    return view.reshape(shape)
 
 
 def group(values, min_len=0, max_len=np.inf):
@@ -387,14 +371,28 @@ def boolean_rows(a, b, operation=set.intersection):
 
 
 def group_vectors(vectors,
-                  angle=np.radians(10),
+                  angle=1e-4,
                   include_negative=False):
     '''
     Group vectors based on an angle tolerance, with the option to
     include negative vectors.
 
+    Parameters
+    -----------
+    vectors: (n,3) float, vectors in space
+    angle:   float, angle in radians to group by
+    include_negative: bool, if True consider for example
+                      [0,0,1] and [0,0,-1] the same
 
+    Returns
+    ------------
+    new_vectors: (m,3) float, vectors in space
+    groups:      (m,) sequence of indicies in source vectors
     '''
+
+    vectors = np.asanyarray(vectors, dtype=np.float64)
+    angle = float(angle)
+
     if include_negative:
         vectors = util.vector_hemisphere(vectors)
 
@@ -432,14 +430,17 @@ def clusters(points, radius):
     points: (n, d) points (of dimension d)
     radius: max distance between points in a cluster
 
-    Returns:
+    Returns
+    ----------
     groups: (m) sequence of indices for points
 
     '''
+    from . import graph
+
     tree = KDTree(points)
     pairs = tree.query_pairs(radius)
-    graph = nx.from_edgelist(pairs)
-    groups = list(nx.connected_components(graph))
+    groups = graph.connected_components(pairs)
+
     return groups
 
 

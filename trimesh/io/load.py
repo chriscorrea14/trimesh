@@ -11,10 +11,12 @@ from ..scene import Scene
 from ..constants import _log_time, log
 
 from . import misc
-from .assimp import _assimp_loaders
+from .ply import _ply_loaders
 from .stl import _stl_loaders
 from .misc import _misc_loaders
-from .ply import _ply_loaders
+from .gltf import _gltf_loaders
+from .assimp import _assimp_loaders
+from .wavefront import _obj_loaders
 from .xml_based import _xml_loaders
 
 try:
@@ -73,11 +75,17 @@ def load(file_obj, file_type=None, **kwargs):
         kwargs.update(file_obj)
         loaded = load_kwargs(kwargs)
     elif file_type in path_formats():
-        loaded = load_path(file_obj, file_type, **kwargs)
+        loaded = load_path(file_obj,
+                           file_type=file_type,
+                           **kwargs)
     elif file_type in mesh_loaders:
-        loaded = load_mesh(file_obj, file_type, **kwargs)
+        loaded = load_mesh(file_obj,
+                           file_type=file_type,
+                           **kwargs)
     elif file_type in compressed_loaders:
-        loaded = load_compressed(file_obj, file_type, **kwargs)
+        loaded = load_compressed(file_obj,
+                                 file_type=file_type,
+                                 **kwargs)
         # metadata we got from filename will be garbage, so suppress it
         metadata = {}
     else:
@@ -115,7 +123,8 @@ def load_mesh(file_obj, file_type=None, **kwargs):
 
     # make sure we keep passed kwargs to loader
     # but also make sure loader keys override passed keys
-    results = mesh_loaders[file_type](file_obj, file_type)
+    results = mesh_loaders[file_type](file_obj,
+                                      file_type=file_type)
 
     if util.is_file(file_obj):
         file_obj.close()
@@ -178,18 +187,26 @@ def load_kwargs(*args, **kwargs):
 
     '''
     def handle_scene():
-        geometry = copy.deepcopy(kwargs['geometry'])
-        for k, v in geometry.items():
-            if isinstance(v, dict):
-                geometry[k] = load_kwargs(v)
+        '''
+        Load a scene from our kwargs:
+
+        class:      Scene
+        geometry:   dict, name: Trimesh kwargs
+        graph:      list of dict, kwargs for scene.graph.update
+        base_frame: str, base frame of graph
+        '''
         scene = Scene()
-        scene.geometry.update(geometry)
+        scene.geometry.update({k: load_kwargs(v) for
+                               k, v in kwargs['geometry'].items()})
 
         for k in kwargs['graph']:
             if isinstance(k, dict):
                 scene.graph.update(**k)
             elif util.is_sequence(k) and len(k) == 3:
                 scene.graph.update(k[1], k[0], **k[2])
+
+        if 'base_frame' in kwargs:
+            scene.graph.base_frame = kwargs['base_frame']
 
         return scene
 
@@ -326,3 +343,5 @@ mesh_loaders.update(_stl_loaders)
 mesh_loaders.update(_misc_loaders)
 mesh_loaders.update(_ply_loaders)
 mesh_loaders.update(_xml_loaders)
+mesh_loaders.update(_obj_loaders)
+mesh_loaders.update(_gltf_loaders)

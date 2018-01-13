@@ -22,8 +22,8 @@ except ImportError:
     log.warning('no scipy')
 
 
-def face_adjacency(faces=None, 
-                   mesh=None, 
+def face_adjacency(faces=None,
+                   mesh=None,
                    return_edges=False):
     '''
     Returns an (n,2) list of face indices.
@@ -85,6 +85,7 @@ def face_adjacency(faces=None,
         return face_adjacency, face_adjacency_edges
     return face_adjacency
 
+
 def face_adjacency_unshared(mesh):
     '''
     Return the vertex index of the two vertices not in the shared
@@ -98,7 +99,7 @@ def face_adjacency_unshared(mesh):
     -----------
     vid_unshared: (len(mesh.face_adjacency), 2) int, indexes of mesh.vertices
     '''
-    
+
     # the non- shared vertex index is the same shape as face_adjacnecy
     # just holding vertex indices rather than face indices
     vid_unshared = np.zeros_like(mesh.face_adjacency, dtype=np.int64)
@@ -106,12 +107,12 @@ def face_adjacency_unshared(mesh):
     for i, adjacency in enumerate(mesh.face_adjacency.T):
         # faces from the current column of face adjacency
         faces = mesh.faces[adjacency]
-        shared = np.logical_or(faces == mesh.face_adjacency_edges[:, 0].reshape((-1,
-                                                                                 1)),
-                               faces == mesh.face_adjacency_edges[:, 1].reshape((-1,
-                                                                                 1)))
-        vid_unshared[:,i] = faces[np.logical_not(shared)]
+        shared = np.logical_or(
+            faces == mesh.face_adjacency_edges[:, 0].reshape((-1, 1)),
+            faces == mesh.face_adjacency_edges[:, 1].reshape((-1, 1)))
+        vid_unshared[:, i] = faces[np.logical_not(shared)]
     return vid_unshared
+
 
 def face_adjacency_radius(mesh):
     '''
@@ -125,6 +126,8 @@ def face_adjacency_radius(mesh):
     -------------
     radii: (n,) float, approximate radius between faces.
            Parallel faces will have a value of np.inf
+    span:  (n,) float, perpendicular projection distance of two
+           unshared vertices onto the shared edge
     '''
 
     # solve for the radius of the adjacent faces
@@ -133,25 +136,24 @@ def face_adjacency_radius(mesh):
     #     2 * sin(theta / 2)
     nonzero = mesh.face_adjacency_angles > np.radians(.01)
     denominator = np.abs(2.0 *
-                  np.sin(mesh.face_adjacency_angles[nonzero] / 1.0))
-    
+                         np.sin(mesh.face_adjacency_angles[nonzero] / 1.0))
+
     # consider the distance between the non- shared vertices of the
     # face adjacency pair as the key distance
     point_pairs = mesh.vertices[mesh.face_adjacency_unshared]
     vectors = np.diff(point_pairs,
-                      axis=1).reshape((-1,3))
+                      axis=1).reshape((-1, 3))
 
     # the vertex indices of the shared edge for the adjacency pairx
     edges = mesh.face_adjacency_edges
     # unit vector along shared the edge
     edges_vec = util.unitize(np.diff(mesh.vertices[edges],
-                                     axis=1).reshape((-1,3)))
+                                     axis=1).reshape((-1, 3)))
 
     # the vector of the perpendicular projection to the shared edge
-    # from the vector
     perp = np.subtract(vectors,
                        (util.diagonal_dot(vectors,
-                        edges_vec).reshape((-1,1))*edges_vec))
+                                          edges_vec).reshape((-1, 1)) * edges_vec))
     # the length of the perpendicular projection
     span = np.linalg.norm(perp, axis=1)
 
@@ -216,6 +218,7 @@ def connected_edges(G, nodes):
     '''
     Given graph G and list of nodes, return the list of edges that
     are connected to nodes
+
     '''
     nodes_in_G = collections.deque()
     for node in nodes:
@@ -237,14 +240,15 @@ def facets(mesh, engine=None):
 
     Returns
     ---------
-    facets: list of groups of face indexes (mesh.faces) of parallel adjacent faces.
+    facets: list of groups of face indexes (mesh.faces) of parallel
+                  adjacent faces.
     '''
     # what is the radius of a circle that passes through the perpendicular
     # projection of the vector between the two non- shared vertices
     # onto the shared edge, with the face normal from the two adjacent faces
     radii = mesh.face_adjacency_radius
     # what is the span perpendicular to the shared edge
-    span  = mesh.face_adjacency_span
+    span = mesh.face_adjacency_span
     # a very arbitrary formula for declaring two adjacent faces
     # parallel in a way that is hopefully (and anecdotally) robust
     # to numeric error
@@ -255,7 +259,7 @@ def facets(mesh, engine=None):
 
     # run connected components on the parallel faces to group them
     components = connected_components(mesh.face_adjacency[parallel],
-                                      node_count=len(mesh.faces),
+                                      nodes=np.arange(len(mesh.faces)),
                                       min_len=2,
                                       engine=engine)
     return components
@@ -294,7 +298,7 @@ def split(mesh,
         min_len = 1
 
     components = connected_components(edges=adjacency,
-                                      node_count=len(mesh.faces),
+                                      nodes=np.arange(len(mesh.faces)),
                                       min_len=min_len,
                                       engine=engine)
     meshes = mesh.submesh(components,
@@ -303,8 +307,8 @@ def split(mesh,
 
 
 def connected_components(edges,
-                         node_count,
                          min_len=1,
+                         nodes=None,
                          engine=None):
     '''
     Find groups of connected nodes from an edge list.
@@ -312,7 +316,7 @@ def connected_components(edges,
     Parameters
     -----------
     edges:      (n,2) int, edges between nodes
-    node_count: int, the largest node in the graph
+    nodes:      (m, ) int, list of nodes that exist
     min_len:    int, minimum length of a component group to return
     engine:     str, which graph engine to use.
                 ('networkx', 'scipy', or 'graphtool')
@@ -323,37 +327,94 @@ def connected_components(edges,
     components: (n,) sequence of lists, nodes which are connected
     '''
     def components_networkx():
+        '''
+        Find connected components using networkx
+        '''
         graph = nx.from_edgelist(edges)
         # make sure every face has a node, so single triangles
         # aren't discarded (as they aren't adjacent to anything)
         if min_len <= 1:
-            graph.add_nodes_from(np.arange(node_count))
+            graph.add_nodes_from(nodes)
         iterable = nx.connected_components(graph)
         # newer versions of networkx return sets rather than lists
-        components = np.array([list(i) for i in iterable if len(i) >= min_len])
+        components = np.array([np.array(list(i), dtype=np.int64)
+                               for i in iterable if len(i) >= min_len])
         return components
 
     def components_graphtool():
+        '''
+        Find connected components using graphtool
+        '''
         g = GTGraph()
         # make sure all the nodes are in the graph
-        if min_len <= 1:
-            g.add_vertex(node_count)
+        g.add_vertex(node_count)
+        # add the edge list
         g.add_edge_list(edges)
-        component_labels = label_components(g, directed=False)[0].a
-        components = grouping.group(component_labels, min_len=min_len)
+
+        labels = np.array(label_components(g, directed=False)[0].a,
+                          dtype=np.int64)[:node_count]
+
+        # we have to remove results that contain nodes outside
+        # of the specified node set and reindex
+        contained = np.zeros(node_count, dtype=np.bool)
+        contained[nodes] = True
+        index = np.arange(node_count, dtype=np.int64)[contained]
+
+        components = grouping.group(labels[contained], min_len=min_len)
+        components = np.array([index[c] for c in components])
+
         return components
 
     def components_csgraph():
-        component_labels = connected_component_labels(edges,
-                                                      node_count=node_count)
-        components = grouping.group(component_labels, min_len=min_len)
+        '''
+        Find connected components using scipy.sparse.csgraph
+        '''
+        # label each node
+        labels = connected_component_labels(edges,
+                                            node_count=node_count)
+
+        # we have to remove results that contain nodes outside
+        # of the specified node set and reindex
+        contained = np.zeros(node_count, dtype=np.bool)
+        contained[nodes] = True
+        index = np.arange(node_count, dtype=np.int64)[contained]
+
+        components = grouping.group(labels[contained], min_len=min_len)
+        components = np.array([index[c] for c in components])
+
         return components
 
     # check input edges
-    edges = np.asanyarray(edges, dtype=np.int)
-    if not (len(edges) == 0 or
-            util.is_shape(edges, (-1, 2))):
+    edges = np.asanyarray(edges, dtype=np.int64)
+    # if no nodes were specified just use unique
+    if nodes is None:
+        nodes = np.unique(edges)
+
+    # exit early if we have no nodes
+    if len(nodes) == 0:
+        return np.array([])
+    elif len(edges) == 0:
+        if min_len <= 1:
+            return np.reshape(nodes, (-1, 1))
+        else:
+            return np.array([])
+
+    if not util.is_shape(edges, (-1, 2)):
         raise ValueError('edges must be (n,2)!')
+
+    # find the maximum index referenced in either nodes or edges
+    counts = [0]
+    if len(edges) > 0:
+        counts.append(edges.max())
+    if len(nodes) > 0:
+        counts.append(nodes.max())
+    node_count = np.max(counts) + 1
+
+    # remove edges that don't have both nodes in the node set
+    mask = np.zeros(node_count, dtype=np.bool)
+    mask[nodes] = True
+    edges_ok = mask[edges].all(axis=1)
+    edges = edges[edges_ok]
 
     # graphtool is usually faster then scipy by ~10%, however on very
     # large or very small graphs graphtool outperforms scipy substantially
@@ -377,7 +438,7 @@ def connected_components(edges,
     raise ImportError('No connected component engines available!')
 
 
-def connected_component_labels(edges, node_count):
+def connected_component_labels(edges, node_count=None):
     '''
     Label graph nodes from an edge list, using scipy.sparse.csgraph
 
@@ -390,18 +451,96 @@ def connected_component_labels(edges, node_count):
     ---------
     labels: (node_count,) int, component labels for each node
     '''
-    edges = np.asanyarray(edges, dtype=np.int)
+    matrix = edges_to_coo(edges, node_count)
+    body_count, labels = csgraph.connected_components(matrix,
+                                                      directed=False)
+
+    assert len(labels) == node_count
+
+    return labels
+
+
+def dfs_traversals(edges):
+    '''
+    Given an edge list, generate a sequence of ordered
+    depth first search traversals, using scipy.csgraph routines.
+
+    Parameters
+    ------------
+    edges: (n,2) int, undirected edges of a graph
+
+    Returns
+    -----------
+    traversals: (m,) sequence of (p,) int,
+                ordered DFS traversals of the graph.
+    '''
+    edges = np.asanyarray(edges, dtype=np.int64)
+    if not util.is_shape(edges, (-1, 2)):
+        raise ValueError('edges are not (n,2)!')
+
+    # make sure edges are sorted so we can query
+    # an ordered pair later
+    edges.sort(axis=1)
+
+    # set of nodes to make sure we get every node
+    nodes = set(edges.reshape(-1))
+    # coo_matrix for csgraph routines
+    graph = edges_to_coo(edges)
+
+    # we're going to make a sequence of traversals
+    traversals = []
+    while len(nodes) > 0:
+        # starting at any node
+        start = nodes.pop()
+        # get an (n,) ordered traversal
+        ordered = csgraph.depth_first_order(graph,
+                                            i_start=start,
+                                            return_predecessors=False,
+                                            directed=False)
+        # even if the traversal is closed there won't be an
+        # indication from the DFS, so add the first node
+        # to the end of the path
+        if np.sort(ordered[[0, -1]]) in edges:
+            ordered = np.append(ordered, ordered[0])
+        # add the traversal to our result
+        traversals.append(ordered)
+        # remove the nodes we've consumed
+        nodes.difference_update(ordered)
+
+    return traversals
+
+
+def edges_to_coo(edges, count=None):
+    '''
+    Given an edge list, return a boolean scipy.sparse.coo_matrix
+    representing the edges in matrix form.
+
+    Parameters
+    ------------
+    edges: (n,2) int, edges of a graph
+    node_count: int, the number of nodes.
+                defaults to edges.max() + 1
+
+    Returns
+    ------------
+    matrix: (count, count) bool, scipy.sparse.coo_matrix
+    '''
+    edges = np.asanyarray(edges, dtype=np.int64)
     if not (len(edges) == 0 or
             util.is_shape(edges, (-1, 2))):
         raise ValueError('edges must be (n,2)!')
 
+    if count is None:
+        count = edges.max() + 1
+    else:
+        count = int(count)
+
     matrix = coo_matrix((np.ones(len(edges), dtype=np.bool),
                          (edges[:, 0], edges[:, 1])),
                         dtype=np.bool,
-                        shape=(node_count, node_count))
-    body_count, labels = csgraph.connected_components(matrix,
-                                                      directed=False)
-    return labels
+                        shape=(count, count))
+
+    return matrix
 
 
 def smoothed(mesh, angle):
@@ -425,7 +564,7 @@ def smoothed(mesh, angle):
     adjacency = mesh.face_adjacency[angle_ok]
     components = connected_components(adjacency,
                                       min_len=1,
-                                      node_count=len(mesh.faces))
+                                      nodes=np.arange(len(mesh.faces)))
     smooth = mesh.submesh(components,
                           only_watertight=False,
                           append=True)

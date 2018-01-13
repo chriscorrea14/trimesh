@@ -85,19 +85,19 @@ class UtilTests(unittest.TestCase):
         modified.append(int(a.md5(), 16))
         self.assertTrue((np.diff(modified) == 0).all())
 
-        a = trimesh.util.tracked_array([0,0,4])
+        a = trimesh.util.tracked_array([0, 0, 4])
         pre_crc = a.crc()
         a += 10
         assert a.crc() != pre_crc
 
-        a = trimesh.util.tracked_array([.125,115.32444,4], dtype=np.float64)
+        a = trimesh.util.tracked_array([.125, 115.32444, 4], dtype=np.float64)
         modified = deque()
         modified.append(a.crc())
-        a += [10,0,0]
+        a += [10, 0, 0]
         modified.append(a.crc())
         a *= 10
         # __idiv__ is weird, and not working
-        #modified.append(a.crc())
+        # modified.append(a.crc())
         #a /= 2.0
         modified.append(a.crc())
         a -= 1.0
@@ -105,9 +105,9 @@ class UtilTests(unittest.TestCase):
         a //= 2
         modified.append(a.crc())
         assert (np.diff(modified) != 0).all()
-        
+
     def test_contiguous(self):
-        a = g.np.random.random((100,3))
+        a = g.np.random.random((100, 3))
         t = g.trimesh.util.tracked_array(a)
 
         # hashing will fail on non- contiguous arrays
@@ -115,8 +115,7 @@ class UtilTests(unittest.TestCase):
         # for both MD5 and CRC
         t[::-1].md5()
         t[::-1].crc()
-        
-        
+
     def test_bounds_tree(self):
         for attempt in range(3):
             for dimension in [2, 3]:
@@ -220,7 +219,7 @@ class MassTests(unittest.TestCase):
             calculated = trimesh.triangles.mass_properties(triangles=mesh.triangles,
                                                            density=truth['density'],
                                                            skip_inertia=False)
-            
+
             parameter_count = 0
             for parameter in calculated.keys():
                 if not (parameter in truth):
@@ -288,6 +287,40 @@ class FileTests(unittest.TestCase):
             self.assertTrue(len(hashed) > 5)
 
             file_obj.close()
+
+
+class FileTests(unittest.TestCase):
+
+    def test_io_wrap(self):
+        test_b = g.np.random.random(1).tostring()
+        test_s = 'this is a test yo'
+
+        res_b = g.trimesh.util.wrap_as_stream(test_b).read()
+        res_s = g.trimesh.util.wrap_as_stream(test_s).read()
+
+        self.assertTrue(res_b == test_b)
+        self.assertTrue(res_s == test_s)
+
+class CompressTests(unittest.TestCase):
+    def test_compress(self):
+        
+        source = {'hey': 'sup',
+                  'naa': '2002211'}
+
+        # will return bytes
+        c = g.trimesh.util.compress(source)
+        
+        # wrap bytes as file- like object
+        f = g.trimesh.util.wrap_as_stream(c)
+        # try to decompress file- like object
+        d = g.trimesh.util.decompress(f, file_type='zip')
+
+        # make sure compressed- decompressed items
+        # are the same after a cycle
+        for key, value in source.items():
+            result = d[key].read().decode('utf-8')
+            assert result == value
+        
 
 
 if __name__ == '__main__':

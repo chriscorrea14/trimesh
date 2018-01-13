@@ -366,6 +366,33 @@ class ColorVisuals(object):
         result = ColorVisuals(face_colors=self.face_colors[face_index])
         return result
 
+    @property
+    def main_color(self):
+        '''
+        What is the most commonly occuring color.
+
+        Returns
+        ------------
+        color: (4,) uint8, most common color
+        '''
+        if self.kind is None:
+            return DEFAULT_COLOR
+        elif self.kind == 'face':
+            colors = self.face_colors
+        elif self.kind == 'vertex':
+            colors = self.vertex_colors
+        else:
+            raise ValueError('color kind incorrect!')
+
+        # find the unique colors
+        unique, inverse = grouping.unique_rows(colors)
+        # the most commonly occuring color, or mode
+        # this will be an index of inverse, not colors
+        mode_index = np.bincount(inverse).argmax()
+        color = colors[unique[mode_index]]
+
+        return color
+
     def concatenate(self, other, *args):
         '''
         Concatenate two or more ColorVisuals objects into a single object.
@@ -471,6 +498,28 @@ def to_rgba(colors, dtype=np.uint8):
         raise ValueError('Colors not of appropriate shape!')
 
     return colors
+
+
+def hex_to_rgba(color):
+    '''
+    Turn a string hex color to a (4,) RGBA color.
+
+    Parameters
+    -----------
+    color: str, hex color
+
+    Returns
+    -----------
+    rgba: (4,) np.uint8, RGBA color
+    '''
+    value = str(color).lstrip('#').strip()
+    if len(value) == 6:
+        rgb = [int(value[i:i + 2], 16) for i in (0, 2, 4)]
+        rgba = np.append(rgb, 255).astype(np.uint8)
+    else:
+        raise ValueError('Only RGB supported')
+
+    return rgba
 
 
 def concatenate_visuals(visuals, *args):

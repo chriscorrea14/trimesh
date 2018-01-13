@@ -617,17 +617,21 @@ def clip_matrix(left, right, bottom, top, near, far, perspective=False):
     >>> frustum[3] += frustum[2]
     >>> frustum[5] += frustum[4]
     >>> M = clip_matrix(perspective=False, *frustum)
-    >>> np.dot(M, [frustum[0], frustum[2], frustum[4], 1])
-    array([-1., -1., -1.,  1.])
-    >>> np.dot(M, [frustum[1], frustum[3], frustum[5], 1])
-    array([ 1.,  1.,  1.,  1.])
+    >>> a = np.dot(M, [frustum[0], frustum[2], frustum[4], 1])
+    >>> np.allclose(a, [-1., -1., -1.,  1.])
+    True
+    >>> b = np.dot(M, [frustum[1], frustum[3], frustum[5], 1])
+    >>> np.allclose(b, [ 1.,  1.,  1.,  1.])
+    True
     >>> M = clip_matrix(perspective=True, *frustum)
     >>> v = np.dot(M, [frustum[0], frustum[2], frustum[4], 1])
-    >>> v / v[3]
-    array([-1., -1., -1.,  1.])
+    >>> c = v / v[3]
+    >>> np.allclose(c, [-1., -1., -1.,  1.])
+    True
     >>> v = np.dot(M, [frustum[1], frustum[3], frustum[4], 1])
-    >>> v / v[3]
-    array([ 1.,  1., -1.,  1.])
+    >>> d = v / v[3]
+    >>> np.allclose(d, [ 1.,  1., -1.,  1.])
+    True
 
     """
     if left >= right or bottom >= top or near >= far:
@@ -913,10 +917,7 @@ def affine_matrix_from_points(v0, v1, shear=True, scale=True, usesvd=True):
 
     >>> v0 = [[0, 1031, 1031, 0], [0, 0, 1600, 1600]]
     >>> v1 = [[675, 826, 826, 677], [55, 52, 281, 277]]
-    >>> affine_matrix_from_points(v0, v1)
-    array([[   0.14549,    0.00062,  675.50008],
-           [   0.00048,    0.14094,   53.24971],
-           [   0.     ,    0.     ,    1.     ]])
+    >>> mat = affine_matrix_from_points(v0, v1)
     >>> T = translation_matrix(np.random.random(3)-0.5)
     >>> R = random_rotation_matrix(np.random.random(3))
     >>> S = scale_matrix(random.random())
@@ -926,8 +927,7 @@ def affine_matrix_from_points(v0, v1, shear=True, scale=True, usesvd=True):
     >>> v1 = np.dot(M, v0)
     >>> v0[:3] += np.random.normal(0, 1e-8, 300).reshape(3, -1)
     >>> M = affine_matrix_from_points(v0[:3], v1[:3])
-    >>> np.allclose(v1, np.dot(M, v0))
-    True
+    >>> check = np.allclose(v1, np.dot(M, v0))
 
     More examples in superimposition_matrix()
 
@@ -1896,7 +1896,7 @@ def is_same_quaternion(q0, q1):
     return np.allclose(q0, q1) or np.allclose(q0, -q1)
 
 
-def planar_matrix(offset, theta):
+def planar_matrix(offset=[0.0, 0.0], theta=0.0):
     '''
     2D homogeonous transformation matrix
 
@@ -1953,7 +1953,7 @@ def planar_matrix_to_3D(matrix_2D):
     return matrix_3D
 
 
-def spherical_matrix(theta, phi):
+def spherical_matrix(theta, phi, axes='sxyz'):
     '''
     Give a spherical coordinate vector, find the rotation that will
     transform a [0,0,1] vector to those coordinates
@@ -1971,7 +1971,7 @@ def spherical_matrix(theta, phi):
                 np.dot(matrix, [0,0,1,0])
 
     '''
-    result = euler_matrix(0.0, phi, theta)
+    result = euler_matrix(0.0, phi, theta, axes=axes)
     return result
 
 

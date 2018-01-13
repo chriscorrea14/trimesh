@@ -10,8 +10,8 @@ class VectorTests(g.unittest.TestCase):
             # file_name should be populated, and if we have a DXF file
             # the layer field should be populated with layer names
             if d.metadata['file_name'][-3:] == 'dxf':
-                self.assertTrue(len(d.metadata['layers']) == len(d.entities))
-
+                assert len(d.layers) == len(d.entities)
+                
             for path in d.paths:
                 verts = d.discretize_path(path)
                 dists = g.np.sum((g.np.diff(verts, axis=0))**2, axis=1)**.5
@@ -61,8 +61,8 @@ class VectorTests(g.unittest.TestCase):
         self.assertTrue(any(len(i.points) > 2 for i in p.entities if
                             g.trimesh.util.is_instance_named(i, 'Line')))
 
-        self.assertTrue(len(p.metadata['layers']) == len(p.entities))
-        self.assertTrue(len(g.np.unique(p.metadata['layers'])) > 1)
+        assert len(p.layers) == len(p.entities)
+        assert len(g.np.unique(p.layers)) > 1
 
         p.explode()
         self.assertTrue(all(len(i.points) == 2 for i in p.entities if
@@ -93,9 +93,9 @@ class ArcTests(g.unittest.TestCase):
             C, res_center) < g.tol_path.zero)
 
     def test_center_random(self):
-        '''
-        Test that arc centers work on well formed random points in 2D and 3D
-        '''
+ 
+        #Test that arc centers work on well formed random points in 2D and 3D
+ 
         min_angle = g.np.radians(2)
         min_radius = .0001
         count = 1000
@@ -151,8 +151,10 @@ class PolygonsTest(g.unittest.TestCase):
         test_radius = 1.0
         test_pitch = test_radius / 10.0
         polygon = g.Point([0, 0]).buffer(test_radius)
-        offset, grid, grid_points = g.trimesh.path.polygons.rasterize_polygon(polygon=polygon,
-                                                                              pitch=test_pitch)
+        (offset,
+         grid,
+         grid_points) = g.trimesh.path.polygons.rasterize_polygon(polygon=polygon,
+                                                                  pitch=test_pitch)
         self.assertTrue(g.trimesh.util.is_shape(grid_points, (-1, 2)))
 
         grid_radius = (grid_points ** 2).sum(axis=1) ** .5
@@ -162,7 +164,32 @@ class PolygonsTest(g.unittest.TestCase):
         self.assertTrue(contained.all())
 
 
+class SplitTest(g.unittest.TestCase):
+    def test_split(self):
+        for fn in ['2D/ChuteHolderPrint.DXF',
+                   '2D/tray-easy1.dxf',
+                   '2D/sliding-base.dxf',
+                   '2D/wrench.dxf',
+                   '2D/spline_1.dxf']:
+            p = g.get_mesh(fn)
 
+            # split by connected
+            split = p.split()
+
+            # make sure split parts have same area as source
+            assert g.np.isclose(p.area, sum(i.area for i in split))
+            # make sure concatenation doesn't break that
+            assert g.np.isclose(p.area, g.np.sum(split).area)
+
+            # check that cache didn't screw things up
+            for s in split:
+                assert len(s.root) == 1
+                assert len(s.path_valid) == len(s.paths)
+                assert len(s.paths) == len(s.discrete)
+                assert s.path_valid.sum() == len(s.polygons_closed)
+
+
+                
 class ExportTest(g.unittest.TestCase):
     def test_svg(self):
         for d in g.get_2D():
@@ -171,16 +198,17 @@ class ExportTest(g.unittest.TestCase):
             # load the exported SVG
             stream = g.trimesh.util.wrap_as_stream(exported)
             loaded = g.trimesh.load(stream, file_type='svg')
-
+            
             # we only have line and arc primitives as SVG export and import
             if all(i.__class__.__name__ in ['Line',
                                             'Arc'] for i in d.entities):
                 # perimeter should stay the same-ish on export/inport
-                assert g.np.allclose(d.length,
+                assert g.np.isclose(d.length,
                                      loaded.length,
                                      rtol=.01)
-            
-        
+
+
+
 if __name__ == '__main__':
     g.trimesh.util.attach_to_log()
     g.unittest.main()

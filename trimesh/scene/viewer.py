@@ -141,7 +141,10 @@ class SceneViewer(pyglet.window.Window):
         self.update_flags()
 
     def init_gl(self):
-        gl.glClearColor(.93, .93, 1, 1)
+        gl.glClearColor(.97, .97, .97, 1.0)
+        max_depth = (np.abs(self.scene.bounds).max(axis=1) ** 2).sum() ** .5
+        max_depth = np.clip(max_depth, 500.00, np.inf)
+        gl.glDepthRange(0.0, max_depth)
 
         gl.glEnable(gl.GL_DEPTH_TEST)
         gl.glEnable(gl.GL_CULL_FACE)
@@ -294,7 +297,6 @@ class SceneViewer(pyglet.window.Window):
             # pop the matrix stack as we drew what we needed to draw
             gl.glPopMatrix()
 
-
     def node_flag(self, node, flag):
         if (hasattr(self.scene, 'flags') and
             node in self.scene.flags and
@@ -305,7 +307,7 @@ class SceneViewer(pyglet.window.Window):
     def save_image(self, file_obj):
         '''
         Save the current color buffer to a file object, in PNG format.
-        
+
         Parameters
         -------------
         file_obj: file name, or file- like object
@@ -315,6 +317,7 @@ class SceneViewer(pyglet.window.Window):
             colorbuffer.save(file=file_obj)
         else:
             colorbuffer.save(filename=file_obj)
+
 
 def _view_transform(view):
     '''
@@ -441,7 +444,8 @@ def _gl_vector(array, *args):
     vector = (gl.GLfloat * len(array))(*array)
     return vector
 
-def render_scene(scene, resolution=(1080,1080), visible=False, **kwargs):
+
+def render_scene(scene, resolution=(1080, 1080), visible=False, **kwargs):
     '''
     Render a preview of a scene to a PNG.
 

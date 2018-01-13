@@ -6,6 +6,7 @@ from rtree import Rtree
 from collections import deque
 
 from .. import bounds
+from .. import graph
 
 from ..geometry import medial_axis as _medial_axis
 from ..constants import tol_path as tol
@@ -15,19 +16,29 @@ from ..util import is_sequence
 from .traversal import resample_path
 
 
-def polygons_enclosure_tree(polygons):
+def enclosure_tree(polygons):
     '''
     Given a list of shapely polygons, which are the root (aka outermost)
     polygons, and which represent the holes which penetrate the root
     curve. We do this by creating an R-tree for rough collision detection,
     and then do polygon queries for a final result
+
+    Parameters
+    -----------
+    polygons: (n,) list of shapely.geometry.Polygon objects
+
+    Returns
+    -----------
+    roots: (m,) int, index of polygons which are root
+    contains:  networkx.DiGraph, edges indicate a polygon
+               contained by another polygon
     '''
     tree = Rtree()
     for i, polygon in enumerate(polygons):
         tree.insert(i, polygon.bounds)
     count = len(polygons)
-    g = nx.DiGraph()
-    g.add_nodes_from(np.arange(count))
+    contains = nx.DiGraph()
+    contains.add_nodes_from(np.arange(count))
     for i in range(count):
         if polygons[i] is None:
             continue
@@ -38,11 +49,48 @@ def polygons_enclosure_tree(polygons):
             # we then do a more accurate polygon in polygon test to generate
             # the enclosure tree information
             if polygons[i].contains(polygons[j]):
-                g.add_edge(i, j)
+                contains.add_edge(i, j)
             elif polygons[j].contains(polygons[i]):
-                g.add_edge(j, i)
-    roots = [n for n, deg in dict(g.in_degree()).items() if deg == 0]
-    return roots, g
+                contains.add_edge(j, i)
+    roots = [n for n, deg in dict(contains.in_degree()).items() if deg == 0]
+    return roots, contains
+
+
+def edges_to_polygons(edges, vertices):
+    '''
+    Given an edge list of indices and associated vertices
+    representing lines, generate a list of polygons.
+
+    Parameters
+    -----------
+    edges: (n,2) int, indexes of vertices which represent lines
+    vertices: (m,2) float, vertex positions
+
+    Returns
+    ----------
+    polygons: (p,) list of shapely.geometry.Polygon objects
+    '''
+    # sequence of ordered traversals
+    dfs = graph.dfs_traversals(edges)
+    # create closed polygon objects
+    polygons = [Polygon(vertices[i]) for i in dfs]
+
+    # if there is only one polygon, just return it
+    if len(polygons) == 1:
+        return polygons
+
+    # find which polygons contain which other polygons
+    roots, tree = enclosure_tree(polygons)
+
+    # generate list of polygons with proper interiors
+    complete = []
+    for root in roots:
+        interior = list(tree[root].keys())
+        shell = polygons[root].exterior.coords
+        holes = [polygons[i].exterior.coords for i in interior]
+        complete.append(Polygon(shell=shell,
+                                holes=holes))
+    return complete
 
 
 def polygons_obb(polygons):
@@ -353,19 +401,57 @@ def polygon_scale(polygon):
     return scale
 
 
-def path_to_polygon(path, scale=None):
-    try:
-        polygon = Polygon(path)
-    except ValueError:
-        return None
-    return repair_invalid(polygon, scale)
+def paths_to_polygons(paths, scale=None):
+    '''
+    Given a sequence of connected points turn them into
+    valid shapely Polygon objects.
+
+    Parameters
+    -----------
+    paths: (n,) sequence, of (m,2) float, closed paths
+    scale: float, scale of drawing
+
+    Returns
+    -----------
+    polys: (p,) list of shapely.geometry.Polygons
+    valid: (n,) bool, whether input path was valid:
+                        valid.sum() == p
+    '''
+    polygons = []
+    valid = np.zeros(len(paths), dtype=np.bool)
+    for i, path in enumerate(paths):
+        if len(path) < 4:
+            # since the first and last vertices are identical in
+            # a closed loop a 4 vertex path is the minimum for
+            # non-zero area
+            continue
+        try:
+            polygons.append(repair_invalid(Polygon(path), scale))
+            valid[i] = True
+        except ValueError:
+            # raised if a polygon is unrecoverable
+            continue
+    polygons = np.array(polygons)
+    return polygons, valid
 
 
 def repair_invalid(polygon, scale=None):
     '''
     Given a shapely.geometry.Polygon, attempt to return a
-    valid version of the polygon. If one can't be found, return None
+    valid version of the polygon.
 
+    Parameters
+    -----------
+    polygon: shapely.geometry.Polygon object
+    scale:   float, or None
+
+    Returns
+    ----------
+    repaired: shapely.geometry.Polygon object
+
+    Raises
+    ----------
+    ValueError: if polygon can't be repaired
     '''
     if hasattr(polygon, 'is_valid') and polygon.is_valid:
         return polygon
@@ -375,7 +461,7 @@ def repair_invalid(polygon, scale=None):
     basic = polygon.buffer(tol.zero)
 
     if basic.area < tol.zero:
-        return None
+        raise ValueError('zero area polygon')
 
     if basic.is_valid:
         return basic
@@ -390,5 +476,4 @@ def repair_invalid(polygon, scale=None):
         log.debug('Recovered invalid polygon through double buffering')
         return unbuffered
 
-    log.warn('Unable to recover polygon! Returning None!')
-    return None
+    raise ValueError('Unable to recover polygon!')

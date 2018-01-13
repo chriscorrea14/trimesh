@@ -232,6 +232,19 @@ class Scene:
         return self._cache['triangles_node']
 
     @util.cache_decorator
+    def geometry_identifiers(self):
+        '''
+        Look up geometries by identifier MD5
+
+        Returns
+        ---------
+        identifiers: dict, identifier md5: key in self.geometry
+        '''
+        identifiers = {mesh.identifier_md5: name
+                       for name, mesh in self.geometry.items()}
+        return identifiers
+
+    @util.cache_decorator
     def duplicate_nodes(self):
         '''
         Return a sequence of node keys of identical meshes.
@@ -490,8 +503,8 @@ class Scene:
         if len(self.geometry) == 0:
             return self
 
-        existing = np.array([i.units for i in self.geometry.values()])
-        if np.any(existing[0] != existing):
+        existing = [i.units for i in self.geometry.values()]
+        if any(existing[0] != e for e in existing):
             # if all of our geometry doesn't have the same units already
             # this function will only do some hot nonsense
             raise ValueError('Models in scene have inconsistent units!')
@@ -634,7 +647,7 @@ def split_scene(geometry):
     '''
     if util.is_instance_named(geometry, 'Scene'):
         return geometry
-        
+
     if util.is_sequence(geometry):
         return Scene(geometry)
 
