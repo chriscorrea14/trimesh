@@ -11,7 +11,7 @@ class VectorTests(g.unittest.TestCase):
             # the layer field should be populated with layer names
             if d.metadata['file_name'][-3:] == 'dxf':
                 assert len(d.layers) == len(d.entities)
-                
+
             for path in d.paths:
                 verts = d.discretize_path(path)
                 dists = g.np.sum((g.np.diff(verts, axis=0))**2, axis=1)**.5
@@ -78,6 +78,7 @@ class VectorTests(g.unittest.TestCase):
 class ArcTests(g.unittest.TestCase):
 
     def test_center(self):
+
         test_points = [[[0, 0], [1.0, 1], [2, 0]]]
         test_results = [[[1, 0], 1.0]]
         points = test_points[0]
@@ -93,9 +94,8 @@ class ArcTests(g.unittest.TestCase):
             C, res_center) < g.tol_path.zero)
 
     def test_center_random(self):
- 
-        #Test that arc centers work on well formed random points in 2D and 3D
- 
+
+        # Test that arc centers work on well formed random points in 2D and 3D
         min_angle = g.np.radians(2)
         min_radius = .0001
         count = 1000
@@ -109,15 +109,15 @@ class ArcTests(g.unittest.TestCase):
         angles = g.np.column_stack((g.np.zeros(count),
                                     g.np.cumsum(angles, axis=1)))
 
-        points_2D = g.np.column_stack((g.np.cos(angles[:, 0]), g.np.sin(angles[:, 0]),
-                                       g.np.cos(angles[:, 1]), g.np.sin(
-                                           angles[:, 1]),
-                                       g.np.cos(angles[:, 2]), g.np.sin(angles[:, 2]))).reshape((-1, 6))
+        points_2D = g.np.column_stack((g.np.cos(angles[:, 0]),
+                                       g.np.sin(angles[:, 0]),
+                                       g.np.cos(angles[:, 1]),
+                                       g.np.sin(angles[:, 1]),
+                                       g.np.cos(angles[:, 2]),
+                                       g.np.sin(angles[:, 2]))).reshape((-1, 6))
         points_2D *= radii.reshape((-1, 1))
-
         points_2D += g.np.tile(center_2D, (1, 3))
         points_2D = points_2D.reshape((-1, 3, 2))
-
         points_3D = g.np.column_stack((points_2D.reshape((-1, 2)),
                                        g.np.tile(center_3D[:, 2].reshape((-1, 1)),
                                                  (1, 3)).reshape(-1))).reshape((-1, 3, 3))
@@ -148,6 +148,7 @@ class ArcTests(g.unittest.TestCase):
 class PolygonsTest(g.unittest.TestCase):
 
     def test_rasterize(self):
+
         test_radius = 1.0
         test_pitch = test_radius / 10.0
         polygon = g.Point([0, 0]).buffer(test_radius)
@@ -155,17 +156,19 @@ class PolygonsTest(g.unittest.TestCase):
          grid,
          grid_points) = g.trimesh.path.polygons.rasterize_polygon(polygon=polygon,
                                                                   pitch=test_pitch)
-        self.assertTrue(g.trimesh.util.is_shape(grid_points, (-1, 2)))
+        assert g.trimesh.util.is_shape(grid_points, (-1, 2))
 
         grid_radius = (grid_points ** 2).sum(axis=1) ** .5
         pixel_diagonal = (test_pitch * (2.0**.5)) / 2.0
         contained = grid_radius <= (test_radius + pixel_diagonal)
 
-        self.assertTrue(contained.all())
+        assert contained.all()
 
 
 class SplitTest(g.unittest.TestCase):
+
     def test_split(self):
+
         for fn in ['2D/ChuteHolderPrint.DXF',
                    '2D/tray-easy1.dxf',
                    '2D/sliding-base.dxf',
@@ -189,8 +192,8 @@ class SplitTest(g.unittest.TestCase):
                 assert s.path_valid.sum() == len(s.polygons_closed)
 
 
-                
 class ExportTest(g.unittest.TestCase):
+
     def test_svg(self):
         for d in g.get_2D():
             # export as svg string
@@ -198,15 +201,42 @@ class ExportTest(g.unittest.TestCase):
             # load the exported SVG
             stream = g.trimesh.util.wrap_as_stream(exported)
             loaded = g.trimesh.load(stream, file_type='svg')
-            
+
             # we only have line and arc primitives as SVG export and import
             if all(i.__class__.__name__ in ['Line',
                                             'Arc'] for i in d.entities):
                 # perimeter should stay the same-ish on export/inport
                 assert g.np.isclose(d.length,
-                                     loaded.length,
-                                     rtol=.01)
+                                    loaded.length,
+                                    rtol=.01)
 
+
+class SectionTest(g.unittest.TestCase):
+
+    def test_section(self):
+        mesh = g.get_mesh('tube.obj')
+
+        # check the CCW correctness with a normal in both directions
+        for sign in [1.0, -1.0]:
+            # get a cross section of the tube
+            section = mesh.section(plane_origin=mesh.center_mass,
+                                   plane_normal=[0.0, sign, 0.0])
+
+            # Path3D -> Path2D
+            planar, T = section.to_planar()
+
+            # tube should have one closed polygon
+            assert len(planar.polygons_full) == 1
+            polygon = planar.polygons_full[0]
+            # closed polygon should have one interior
+            assert len(polygon.interiors) == 1
+
+            # the exterior SHOULD be counterclockwise
+            assert g.trimesh.path.util.is_ccw(
+                polygon.exterior.coords)
+            # the interior should NOT be counterclockwise
+            assert not g.trimesh.path.util.is_ccw(
+                polygon.interiors[0].coords)
 
 
 if __name__ == '__main__':

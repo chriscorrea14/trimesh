@@ -1,11 +1,13 @@
-'''
-trimesh.util: utility functions
+"""
+util.py
+-----------
 
 Standalone functions which require only imports from numpy and the
-standard library are included in this module.
+standard library.
 
-Other libraries may be included but they must be wrapped in try/except blocks
-'''
+Other libraries may be imported must be wrapped in try/except blocks
+or imported inside of a function
+"""
 
 import numpy as np
 import collections
@@ -21,6 +23,7 @@ import zlib
 from sys import version_info
 from functools import wraps
 
+# a flag we can check elsewhere for Python 3
 PY3 = version_info.major >= 3
 if PY3:
     basestring = str
@@ -31,13 +34,17 @@ else:
 log = logging.getLogger('trimesh')
 log.addHandler(logging.NullHandler())
 
-# included here so util has only standard library imports
-_TOL_ZERO = 1e-12
-_TOL_MERGE = 1e-8
+# include constants here so we don't have to import
+# a floating point threshold for 0.0
+# we are setting it to 100x the resolution of a float64
+# which works out to be 1e-13
+TOL_ZERO = np.finfo(np.float64).resolution * 100
+# how close to merge vertices
+TOL_MERGE = 1e-8
 
 
-def unitize(points, check_valid=False):
-    '''
+def unitize(points, check_valid=False, threshold=None):
+    """
     Turn a list of vectors into a list of unit vectors.
 
     Parameters
@@ -45,7 +52,11 @@ def unitize(points, check_valid=False):
     points:       (n,m) or (j) input array of vectors.
                   For 1D arrays, points is treated as a single vector
                   For 2D arrays, each row is treated as a vector
+
     check_valid:  boolean, if True enables valid output and checking
+
+    threshold:    float, cutoff to be considered zero.
+
 
     Returns
     ---------
@@ -53,16 +64,22 @@ def unitize(points, check_valid=False):
 
     valid:        (n) boolean array, output only if check_valid.
                    True for all valid (nonzero length) vectors, thus m=sum(valid)
-    '''
+    """
     points = np.asanyarray(points)
     axis = len(points.shape) - 1
     length = np.sum(points ** 2, axis=axis) ** .5
 
     if is_sequence(length):
         length[np.isnan(length)] = 0.0
+    if threshold is None:
+        threshold = TOL_ZERO
 
     if check_valid:
-        valid = np.greater(length, _TOL_ZERO)
+        # make sure lengths are greater than zero
+        valid = np.logical_not(np.isclose(length,
+                                          0.0,
+                                          rtol=0.0,
+                                          atol=threshold))
         if axis == 1:
             unit_vectors = (points[valid].T / length[valid]).T
         elif len(points.shape) == 1 and valid:
@@ -76,17 +93,51 @@ def unitize(points, check_valid=False):
 
 
 def euclidean(a, b):
-    '''
-    Euclidean distance between vectors a and b
-    '''
-    return np.sum((np.array(a) - b)**2) ** .5
+    """
+    Euclidean distance between vectors a and b.
+
+    Parameters
+    ------------
+    a: (n,) float, vector A
+    b: (n,) float, vector B
+
+    Returns
+    ------------
+    distance: float, euclidean distance between A and B
+    """
+    a = np.asanyarray(a, dtype=np.float64)
+    b = np.asanyarray(b, dtype=np.float64)
+    distance = np.sum((a - b) ** 2) ** .5
+    return distance
 
 
 def is_file(obj):
-    return hasattr(obj, 'read')
+    """
+    Check if an object is file- like
+
+    Parameters
+    ------------
+    obj: object to be checked
+
+    Returns
+    -----------
+    is_file: bool, True if object is a file
+    """
+    return hasattr(obj, 'read') or hasattr(obj, 'write')
 
 
 def is_string(obj):
+    """
+    Check if an object is a string.
+
+    Parameters
+    ------------
+    obj: object to be checked
+
+    Returns
+    ------------
+    is_string: bool, True if obj is a string
+    """
     return isinstance(obj, basestring)
 
 
@@ -95,6 +146,19 @@ def is_dict(obj):
 
 
 def is_none(obj):
+    """
+    Check to see if an object is None or not.
+
+    Handles the case of np.array(None) as well.
+
+    Parameters
+    -------------
+    obj: object to be checked
+
+    Returns
+    -------------
+    is_none: bool, True if obj is None
+    """
     if obj is None:
         return True
     if (is_sequence(obj) and
@@ -105,9 +169,17 @@ def is_none(obj):
 
 
 def is_sequence(obj):
-    '''
-    Returns True if obj is a sequence.
-    '''
+    """
+    Check if an object is a sequence or not.
+
+    Parameters
+    -------------
+    obj: object to be checked
+
+    Returns
+    -------------
+    is_sequence: bool, True if object is sequence
+    """
     seq = (not hasattr(obj, "strip") and
            hasattr(obj, "__getitem__") or
            hasattr(obj, "__iter__"))
@@ -124,7 +196,7 @@ def is_sequence(obj):
 
 
 def is_shape(obj, shape):
-    '''
+    """
     Compare the shape of a numpy.ndarray to a target shape,
     with any value less than zero being considered a wildcard
 
@@ -133,7 +205,7 @@ def is_shape(obj, shape):
 
     Parameters
     ---------
-    obj: np.ndarray to check the shape of
+    obj:   np.ndarray to check the shape of
     shape: list or tuple of shape.
            Any negative term will be considered a wildcard
            Any tuple term will be evaluated as an OR
@@ -163,7 +235,7 @@ def is_shape(obj, shape):
 
     In [7]: trimesh.util.is_shape(a, (-1,(4,5)))
     Out[7]: False
-    '''
+    """
 
     if (not hasattr(obj, 'shape') or
             len(obj.shape) != len(shape)):
@@ -192,13 +264,21 @@ def is_shape(obj, shape):
 
 
 def make_sequence(obj):
-    '''
+    """
     Given an object, if it is a sequence return, otherwise
     add it to a length 1 sequence and return.
 
     Useful for wrapping functions which sometimes return single
     objects and other times return lists of objects.
-    '''
+
+    Parameters
+    --------------
+    obj: object to be made a sequence
+
+    Returns
+    --------------
+    as_sequence: (n,) sequence containing input
+    """
     if is_sequence(obj):
         return np.array(list(obj))
     else:
@@ -206,7 +286,7 @@ def make_sequence(obj):
 
 
 def vector_hemisphere(vectors):
-    '''
+    """
     For a set of 3D vectors alter the sign so they are all in the upper
     hemisphere.
 
@@ -223,13 +303,13 @@ def vector_hemisphere(vectors):
     oriented: (n,3) float, set of vectors with same magnitude but all
                            pointing in the same hemisphere.
 
-    '''
+    """
     vectors = np.asanyarray(vectors, dtype=np.float64)
     if not is_shape(vectors, (-1, 3)):
         raise ValueError('Vectors must be (n,3)!')
 
-    neg = vectors < -_TOL_ZERO
-    zero = np.logical_not(np.logical_or(neg, vectors > _TOL_ZERO))
+    neg = vectors < -TOL_ZERO
+    zero = np.logical_not(np.logical_or(neg, vectors > TOL_ZERO))
 
     # move all                          negative Z to positive
     # then for zero Z vectors, move all negative Y to positive
@@ -253,15 +333,15 @@ def vector_hemisphere(vectors):
 
 
 def vector_to_spherical(cartesian):
-    '''
+    """
     Convert a set of cartesian points to (n,2) spherical vectors
-    '''
+    """
     cartesian = np.asanyarray(cartesian, dtype=np.float64)
     if not is_shape(cartesian, (-1, 3)):
         raise ValueError('Cartesian points must be (n,3)!')
 
     unit, valid = unitize(cartesian, check_valid=True)
-    unit[np.abs(unit) < _TOL_MERGE] = 0.0
+    unit[np.abs(unit) < TOL_MERGE] = 0.0
 
     x, y, z = unit.T
     spherical = np.zeros((len(cartesian), 2), dtype=np.float64)
@@ -271,9 +351,9 @@ def vector_to_spherical(cartesian):
 
 
 def spherical_to_vector(spherical):
-    '''
+    """
     Convert a set of (n,2) spherical vectors to (n,3) vectors
-    '''
+    """
     spherical = np.asanyarray(spherical, dtype=np.float64)
     if not is_shape(spherical, (-1, 2)):
         raise ValueError(
@@ -288,18 +368,56 @@ def spherical_to_vector(spherical):
     return vectors
 
 
+def pairwise(iterable):
+    """
+    For an iterable, group values into pairs.
+
+    Parameters
+    -----------
+    iterable: flat list
+
+    Returns
+    -----------
+    pairs: (n,) seq of (2,) pairs of items
+
+    Example
+    -----------
+    In [1]: data
+    Out[1]: [0, 1, 2, 3, 4, 5, 6]
+
+    In [2]: list(trimesh.util.pairwise(data))
+    Out[2]: [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)]
+
+    """
+    # looping through a giant numpy array would be dumb
+    # so special case ndarrays and use numpy operations
+    if isinstance(iterable, np.ndarray):
+        iterable = iterable.reshape(-1)
+        stacked = np.column_stack((iterable, iterable))
+        pairs = stacked.reshape(-1)[1:-1].reshape((-1, 2))
+        return pairs
+
+    # if we have a normal iterable use itertools
+    import itertools
+    a, b = itertools.tee(iterable)
+    # pop the first element of the second item
+    popped = next(b)
+    return zip(a, b)
+
+
 try:
     # prefer the faster numpy version
+    # only included in recent- ish version of numpy
     multi_dot = np.linalg.multi_dot
 except AttributeError:
     log.warning('np.linalg.multi_dot not available, falling back')
 
     def multi_dot(arrays):
-        '''
+        """
         Compute the dot product of two or more arrays in a single function call.
         In most versions of numpy this is included, this slower function is
         provided for backwards compatibility with ancient versions of numpy.
-        '''
+        """
         arrays = np.asanyarray(arrays)
         result = arrays[0]
         for i in arrays[1:]:
@@ -308,19 +426,31 @@ except AttributeError:
 
 
 def diagonal_dot(a, b):
-    '''
+    """
     Dot product by row of a and b.
 
     Same as np.diag(np.dot(a, b.T)) but without the monstrous
     intermediate matrix.
-    '''
+
+    Also equivilant to:
+    np.einsum('ij,ij->i', a, b)
+
+    Parameters
+    ------------
+    a: (m, d) array
+    b: (m, d) array
+
+    Returns
+    -------------
+    result: (m, d) array
+    """
     result = (np.asanyarray(a) *
               np.asanyarray(b)).sum(axis=1)
     return result
 
 
 def three_dimensionalize(points, return_2D=True):
-    '''
+    """
     Given a set of (n,2) or (n,3) points, return them as (n,3) points
 
     Parameters
@@ -335,7 +465,7 @@ def three_dimensionalize(points, return_2D=True):
         points: (n,3) set of points
     else:
         points: (n,3) set of points
-    '''
+    """
     points = np.asanyarray(points)
     shape = points.shape
 
@@ -356,7 +486,7 @@ def three_dimensionalize(points, return_2D=True):
 
 
 def grid_arange(bounds, step):
-    '''
+    """
     Return a grid from an (2,dimension) bounds with samples step distance apart.
 
     Parameters
@@ -367,7 +497,7 @@ def grid_arange(bounds, step):
     Returns
     -------
     grid: (n, dimension), points inside the specified bounds
-    '''
+    """
     bounds = np.asanyarray(bounds, dtype=np.float64)
     if len(bounds) != 2:
         raise ValueError('bounds must be (2, dimension!')
@@ -384,7 +514,7 @@ def grid_arange(bounds, step):
 
 
 def grid_linspace(bounds, count):
-    '''
+    """
     Return a grid spaced inside a bounding box with edges spaced using np.linspace.
 
     Parameters
@@ -395,7 +525,7 @@ def grid_linspace(bounds, count):
     Returns
     -------
     grid: (n, dimension) float, points in the specified bounds
-    '''
+    """
     bounds = np.asanyarray(bounds, dtype=np.float64)
     if len(bounds) != 2:
         raise ValueError('bounds must be (2, dimension!')
@@ -411,7 +541,7 @@ def grid_linspace(bounds, count):
 
 
 def multi_dict(pairs):
-    '''
+    """
     Given a set of key value pairs, create a dictionary.
     If a key occurs multiple times, stack the values into an array.
 
@@ -425,7 +555,7 @@ def multi_dict(pairs):
     ----------
     result: dict, with all values stored (rather than last with regular dict)
 
-    '''
+    """
     result = collections.defaultdict(list)
     for k, v in pairs:
         result[k].append(v)
@@ -443,10 +573,10 @@ def tolist_dict(data):
 
 
 def is_binary_file(file_obj):
-    '''
+    """
     Returns True if file has non-ASCII characters (> 0x7F, or 127)
     Should work in both Python 2 and 3
-    '''
+    """
     start = file_obj.tell()
     fbytes = file_obj.read(1024)
     file_obj.seek(start)
@@ -462,7 +592,7 @@ def is_binary_file(file_obj):
 
 
 def distance_to_end(file_obj):
-    '''
+    """
     For an open file object how far is it to the end
 
     Parameters
@@ -472,7 +602,7 @@ def distance_to_end(file_obj):
     Returns
     ----------
     distance: int, bytes to end of file
-    '''
+    """
     position_current = file_obj.tell()
     file_obj.seek(0, 2)
     position_end = file_obj.tell()
@@ -482,7 +612,7 @@ def distance_to_end(file_obj):
 
 
 def decimal_to_digits(decimal, min_digits=None):
-    '''
+    """
     Return the number of digits to the first nonzero decimal.
 
     Parameters
@@ -494,7 +624,7 @@ def decimal_to_digits(decimal, min_digits=None):
     -----------
 
     digits: int, number of digits to the first nonzero decimal
-    '''
+    """
     digits = abs(int(np.log10(decimal)))
     if min_digits is not None:
         digits = np.clip(digits, min_digits, 20)
@@ -503,7 +633,7 @@ def decimal_to_digits(decimal, min_digits=None):
 
 def hash_file(file_obj,
               hash_function=hashlib.md5):
-    '''
+    """
     Get the hash of an open file- like object.
 
     Parameters
@@ -514,7 +644,7 @@ def hash_file(file_obj,
     Returns
     ---------
     hashed: str, hex version of result
-    '''
+    """
     # before we read the file data save the current position
     # in the file (which is probably 0)
     file_position = file_obj.tell()
@@ -531,7 +661,7 @@ def hash_file(file_obj,
 
 
 def md5_object(obj):
-    '''
+    """
     If an object is hashable, return the string of the MD5.
 
     Parameters
@@ -541,7 +671,7 @@ def md5_object(obj):
     Returns
     ----------
     md5: str, MD5 hash
-    '''
+    """
     hasher = hashlib.md5()
     hasher.update(obj)
     md5 = hasher.hexdigest()
@@ -549,7 +679,7 @@ def md5_object(obj):
 
 
 def md5_array(array, digits=5):
-    '''
+    """
     Take the MD5 of an array when considering the specified number of digits.
 
     Parameters
@@ -560,7 +690,7 @@ def md5_array(array, digits=5):
     Returns
     ---------
     md5: str, md5 hash of input
-    '''
+    """
     digits = int(digits)
     array = np.asanyarray(array, dtype=np.float64).reshape(-1)
     as_int = (array * 10 ** digits).astype(np.int64)
@@ -576,7 +706,7 @@ def attach_to_log(level=logging.DEBUG,
                              'PYREADLINE',
                              'shapely.geos',
                              'shapely.speedups._speedups']):
-    '''
+    """
     Attach a stream handler to all loggers.
 
     Parameters
@@ -587,7 +717,7 @@ def attach_to_log(level=logging.DEBUG,
                  if None, will try to attach to all available
     colors:    bool, if True try to use colorlog formatter
     blacklist: list of str, names of loggers NOT to attach to
-    '''
+    """
     formatter = logging.Formatter(
         "[%(asctime)s] %(levelname)-7s (%(filename)s:%(lineno)3s) %(message)s",
         "%Y-%m-%d %H:%M:%S")
@@ -629,7 +759,7 @@ def attach_to_log(level=logging.DEBUG,
 
 
 def tracked_array(array, dtype=None):
-    '''
+    """
     Properly subclass a numpy ndarray to track changes.
 
     Avoids some pitfalls of subclassing by forcing contiguous
@@ -643,7 +773,7 @@ def tracked_array(array, dtype=None):
     Returns
     ------------
     tracked: TrackedArray, of input array data
-    '''
+    """
     tracked = np.ascontiguousarray(array,
                                    dtype=dtype).view(TrackedArray)
     assert tracked.flags['C_CONTIGUOUS']
@@ -651,27 +781,27 @@ def tracked_array(array, dtype=None):
 
 
 class TrackedArray(np.ndarray):
-    '''
+    """
     Track changes in a numpy ndarray.
 
     Methods
     ----------
     md5: returns hexadecimal string of md5 of array
     crc: returns int zlib.adler32 checksum of array
-    '''
+    """
 
     def __array_finalize__(self, obj):
-        '''
+        """
         Sets a modified flag on every TrackedArray
         This flag will be set on every change, as well as during copies
         and certain types of slicing.
-        '''
+        """
         self._modified = True
         if isinstance(obj, type(self)):
             obj._modified = True
 
     def md5(self):
-        '''
+        """
         Return an MD5 hash of the current array in hexadecimal string form.
 
         This is quite fast; on a modern i7 desktop a (1000000,3) floating point
@@ -680,7 +810,7 @@ class TrackedArray(np.ndarray):
         This is only recomputed if a modified flag is set which may have false
         positives (forcing an unnecessary recompute) but will not have false
         negatives which would return an incorrect hash.
-        '''
+        """
 
         if self._modified or not hasattr(self, '_hashed_md5'):
             if self.flags['C_CONTIGUOUS']:
@@ -696,9 +826,9 @@ class TrackedArray(np.ndarray):
         return self._hashed_md5
 
     def crc(self):
-        '''
+        """
         Return a zlib adler32 checksum of the current data.
-        '''
+        """
         if self._modified or not hasattr(self, '_hashed_crc'):
             if self.flags['C_CONTIGUOUS']:
                 self._hashed_crc = zlib.adler32(self) & 0xffffffff
@@ -714,9 +844,9 @@ class TrackedArray(np.ndarray):
         return self._hashed_crc
 
     def __hash__(self):
-        '''
+        """
         Hash is required to return an int, so we convert the hex string to int.
-        '''
+        """
         return int(self.md5(), 16)
 
     def __iadd__(self, other):
@@ -789,9 +919,9 @@ def cache_decorator(function):
 
 
 class Cache:
-    '''
+    """
     Class to cache values until an id function changes.
-    '''
+    """
 
     def __init__(self, id_function=None):
         if id_function is None:
@@ -803,28 +933,28 @@ class Cache:
         self.cache = {}
 
     def get(self, key):
-        '''
+        """
         Get a key from the cache.
 
         If the key is unavailable or the cache has been invalidated returns None.
-        '''
+        """
         self.verify()
         if key in self.cache:
             return self.cache[key]
         return None
 
     def delete(self, key):
-        '''
+        """
         Remove a key from the cache.
-        '''
+        """
         if key in self.cache:
             self.cache.pop(key, None)
 
     def verify(self):
-        '''
+        """
         Verify that the cached values are still for the same value of id_function,
         and delete all stored items if the value of id_function has changed.
-        '''
+        """
         id_new = self._id_function()
         if (self._lock == 0) and (id_new != self.id_current):
             if len(self.cache) > 0:
@@ -835,18 +965,18 @@ class Cache:
             self.id_set()
 
     def clear(self, exclude=None):
-        '''
+        """
         Remove all elements in the cache.
-        '''
+        """
         if exclude is None:
             self.cache = {}
         else:
             self.cache = {k: v for k, v in self.cache.items() if k in exclude}
 
     def update(self, items):
-        '''
+        """
         Update the cache with a set of key, value pairs without checking id_function.
-        '''
+        """
         self.cache.update(items)
         self.id_set()
 
@@ -881,9 +1011,9 @@ class Cache:
 
 
 class DataStore:
-    '''
+    """
     A class to store multiple numpy arrays and track them all for changes.
-    '''
+    """
 
     def __init__(self):
         self.data = {}
@@ -958,7 +1088,7 @@ class DataStore:
 
 
 def stack_lines(indices):
-    '''
+    """
     Stack a list of values that represent a polyline into
     individual line segments with duplicated consecutive values.
 
@@ -991,7 +1121,7 @@ def stack_lines(indices):
            [2, 2],
            [3, 3]])
 
-    '''
+    """
     indices = np.asanyarray(indices)
     if is_sequence(indices[0]):
         shape = (-1, len(indices[0]))
@@ -1002,7 +1132,7 @@ def stack_lines(indices):
 
 
 def append_faces(vertices_seq, faces_seq):
-    '''
+    """
     Given a sequence of zero- indexed faces and vertices,
     combine them into a single (n,3) list of faces and (m,3) vertices
 
@@ -1016,7 +1146,7 @@ def append_faces(vertices_seq, faces_seq):
     ----------
     vertices: (i, d) float, vertices
     faces:    (j, 3) int, faces
-    '''
+    """
     vertices_len = np.array([len(i) for i in vertices_seq])
     face_offset = np.append(0, np.cumsum(vertices_len)[:-1])
 
@@ -1035,7 +1165,7 @@ def array_to_string(array,
                     row_delim='\n',
                     digits=8,
                     value_format='{}'):
-    '''
+    """
     Convert a 1 or 2D array into a string with a specified number of digits
     and delimiter.
 
@@ -1050,7 +1180,7 @@ def array_to_string(array,
     Returns
     ----------
     formatted: str, string representation of original array
-    '''
+    """
     # convert inputs to correct types
     array = np.asanyarray(array)
     digits = int(digits)
@@ -1071,8 +1201,8 @@ def array_to_string(array,
         format_str = value_format + col_delim
     elif array.dtype.kind == 'f':
         # add the digits formatting to floats
-        format_str = value_format.replace('{}',
-                                          '{:.' + str(digits) + 'f}') + col_delim
+        format_str = value_format.replace(
+            '{}', '{:.' + str(digits) + 'f}') + col_delim
     else:
         raise ValueError('dtype %s not convertable!',
                          array.dtype.name)
@@ -1101,7 +1231,7 @@ def array_to_string(array,
 
 
 def array_to_encoded(array, dtype=None, encoding='base64'):
-    '''
+    """
     Export a numpy array to a compact serializable dictionary.
 
     Parameters
@@ -1116,7 +1246,7 @@ def array_to_encoded(array, dtype=None, encoding='base64'):
                  dtype: string of dtype
                  shape: int tuple of shape
                  base64: base64 encoded string of flat array
-    '''
+    """
     array = np.asanyarray(array)
     shape = array.shape
     # ravel also forces contiguous
@@ -1139,7 +1269,7 @@ def array_to_encoded(array, dtype=None, encoding='base64'):
 
 
 def decode_keys(store, encoding='utf-8'):
-    '''
+    """
     If a dictionary has keys that are bytes encode them (utf-8 default)
 
     Parameters
@@ -1149,7 +1279,7 @@ def decode_keys(store, encoding='utf-8'):
     Returns
     ---------
     store: dict, with same data and if keys were bytes they have been encoded
-    '''
+    """
     keys = store.keys()
     for key in keys:
         if hasattr(key, 'decode'):
@@ -1161,7 +1291,7 @@ def decode_keys(store, encoding='utf-8'):
 
 
 def encoded_to_array(encoded):
-    '''
+    """
     Turn a dictionary with base64 encoded strings back into a numpy array.
 
     Parameters
@@ -1174,7 +1304,7 @@ def encoded_to_array(encoded):
     Returns
     ----------
     array: numpy array
-    '''
+    """
     if not is_dict(encoded):
         if is_sequence(encoded):
             as_array = np.asanyarray(encoded)
@@ -1197,7 +1327,7 @@ def encoded_to_array(encoded):
 
 
 def is_instance_named(obj, name):
-    '''
+    """
     Given an object, if it is a member of the class 'name',
     or a subclass of 'name', return True.
 
@@ -1209,7 +1339,7 @@ def is_instance_named(obj, name):
     Returns
     ---------
     bool, whether the object is a member of the named class
-    '''
+    """
     try:
         type_named(obj, name)
         return True
@@ -1218,9 +1348,9 @@ def is_instance_named(obj, name):
 
 
 def type_bases(obj, depth=4):
-    '''
+    """
     Return the bases of the object passed.
-    '''
+    """
     bases = collections.deque([list(obj.__class__.__bases__)])
     for i in range(depth):
         bases.append([i.__base__ for i in bases[-1] if i is not None])
@@ -1234,7 +1364,7 @@ def type_bases(obj, depth=4):
 
 
 def type_named(obj, name):
-    '''
+    """
     Similar to the type() builtin, but looks in class bases for named instance.
 
     Parameters
@@ -1245,7 +1375,7 @@ def type_named(obj, name):
     Returns
     ----------
     named class, or None
-    '''
+    """
     # if obj is a member of the named class, return True
     name = str(name)
     if obj.__class__.__name__ == name:
@@ -1257,7 +1387,7 @@ def type_named(obj, name):
 
 
 def concatenate(a, b):
-    '''
+    """
     Concatenate two meshes.
 
     Parameters
@@ -1268,7 +1398,7 @@ def concatenate(a, b):
     Returns
     ----------
     result: Trimesh object containing all faces of a and b
-    '''
+    """
     # Extract the trimesh type to avoid a circular import,
     # and assert that both inputs are Trimesh objects
     trimesh_type = type_named(a, 'Trimesh')
@@ -1293,7 +1423,7 @@ def submesh(mesh,
             faces_sequence,
             only_watertight=False,
             append=False):
-    '''
+    """
     Return a subset of a mesh.
 
     Parameters
@@ -1308,7 +1438,7 @@ def submesh(mesh,
     ---------
     if append: Trimesh object
     else:      list of Trimesh objects
-    '''
+    """
     # evaluate generators so we can escape early
     faces_sequence = list(faces_sequence)
 
@@ -1382,7 +1512,7 @@ def submesh(mesh,
 
 
 def zero_pad(data, count, right=True):
-    '''
+    """
     Parameters
     --------
     data: (n) length 1D array
@@ -1391,7 +1521,7 @@ def zero_pad(data, count, right=True):
     Returns
     --------
     padded: (count) length 1D array if (n < count), otherwise length (n)
-    '''
+    """
     if len(data) == 0:
         return np.zeros(count)
     elif len(data) < count:
@@ -1406,7 +1536,7 @@ def zero_pad(data, count, right=True):
 
 
 def format_json(data, digits=6):
-    '''
+    """
     Function to turn a 1D float array into a json string
 
     The built in json library doesn't have a good way of setting the
@@ -1420,18 +1550,18 @@ def format_json(data, digits=6):
     Returns
     ----------
     as_json: string, data formatted into a JSON- parsable string
-    '''
+    """
     format_str = '.' + str(int(digits)) + 'f'
     as_json = '[' + ','.join(map(lambda o: format(o, format_str), data)) + ']'
     return as_json
 
 
 class Words:
-    '''
+    """
     A class to contain a list of words, such as the english language.
     The primary purpose is to create random keyphrases to be used to name
     things without resorting to giant hash strings.
-    '''
+    """
 
     def __init__(self, file_name='/usr/share/dict/words', words=None):
         if words is None:
@@ -1445,7 +1575,7 @@ class Words:
             log.warning('No words available!')
 
     def random_phrase(self, length=2, delimiter='-'):
-        '''
+        """
         Create a random phrase using words containing only charecters.
 
         Parameters
@@ -1471,14 +1601,14 @@ class Words:
           hipped-croupier
           puller-demesne
           phenomenally-hairs
-        '''
+        """
         result = str(delimiter).join(np.random.choice(self.words_simple,
                                                       length))
         return result
 
 
 def convert_like(item, like):
-    '''
+    """
     Convert an item to have the dtype of another item
 
     Parameters
@@ -1489,7 +1619,7 @@ def convert_like(item, like):
     Returns
     --------
     result: item, but in dtype of like
-    '''
+    """
     if isinstance(like, np.ndarray):
         return np.asanyarray(item, dtype=like.dtype)
 
@@ -1506,7 +1636,7 @@ def convert_like(item, like):
 
 
 def bounds_tree(bounds):
-    '''
+    """
     Given a set of axis aligned bounds, create an r-tree for broad- phase
     collision detection
 
@@ -1519,7 +1649,7 @@ def bounds_tree(bounds):
     Returns
     ---------
     tree: Rtree object
-    '''
+    """
     bounds = np.asanyarray(copy.deepcopy(bounds), dtype=np.float64)
     if len(bounds.shape) != 2:
         raise ValueError('Bounds must be (n,dimension*2)!')
@@ -1554,7 +1684,7 @@ def bounds_tree(bounds):
 
 
 def wrap_as_stream(item):
-    '''
+    """
     Wrap a string or bytes object as a file object
 
     Parameters
@@ -1564,7 +1694,7 @@ def wrap_as_stream(item):
     Returns
     ---------
     wrapped: file-like object
-    '''
+    """
     if not PY3:
         return StringIO(item)
     if isinstance(item, str):
@@ -1580,7 +1710,7 @@ def histogram_peaks(data,
                     weights=None,
                     plot=False,
                     use_spline=True):
-    '''
+    """
     A function to bin data, fit a spline to the histogram,
     and return the peaks of that spline.
 
@@ -1595,7 +1725,7 @@ def histogram_peaks(data,
     Returns
     -----------
     peaks: (m,) float, ordered list of peaks (largest are at the end).
-    '''
+    """
     data = np.asanyarray(data).reshape(-1)
 
     # (2,) float, start and end of histogram bins
@@ -1647,7 +1777,7 @@ def histogram_peaks(data,
 
 
 def sigfig_round(values, sigfig=1):
-    '''
+    """
     Round a single value to a specified number of signifigant figures.
 
     Parameters
@@ -1671,7 +1801,7 @@ def sigfig_round(values, sigfig=1):
 
     In [3]: trimesh.util.round_sigfig(.00014045456, 4)
     Out[3]: 0.0001405
-    '''
+    """
     as_int, multiplier = sigfig_int(values, sigfig)
     rounded = as_int * (10 ** multiplier)
 
@@ -1679,7 +1809,7 @@ def sigfig_round(values, sigfig=1):
 
 
 def sigfig_int(values, sigfig):
-    '''
+    """
     Convert a set of floating point values into integers with a specified number
     of signifigant figures and an exponent.
 
@@ -1693,7 +1823,7 @@ def sigfig_int(values, sigfig):
     as_int:      (n,) int, every value[i] has sigfig[i] digits
     multiplier:  (n, int), exponent, so as_int * 10 ** multiplier is
                  the same order of magnitude as the input
-    '''
+    """
     values = np.asanyarray(values).reshape(-1)
     sigfig = np.asanyarray(sigfig, dtype=np.int).reshape(-1)
 
@@ -1701,7 +1831,7 @@ def sigfig_int(values, sigfig):
         raise ValueError('sigfig must match identifier')
 
     exponent = np.zeros(len(values))
-    nonzero = np.abs(values) > _TOL_ZERO
+    nonzero = np.abs(values) > TOL_ZERO
     exponent[nonzero] = np.floor(np.log10(np.abs(values[nonzero])))
 
     multiplier = exponent - sigfig + 1
@@ -1712,7 +1842,7 @@ def sigfig_int(values, sigfig):
 
 
 def decompress(file_obj, file_type):
-    '''
+    """
     Given an open file object and a file type, return all components
     of the archive as open file objects in a dict.
 
@@ -1725,7 +1855,7 @@ def decompress(file_obj, file_type):
     ---------
     decompressed: dict:
                   {(str, file name) : (file-like object)}
-    '''
+    """
 
     def is_zip():
         archive = zipfile.ZipFile(file_obj)
@@ -1744,16 +1874,16 @@ def decompress(file_obj, file_type):
     if isinstance(file_obj, bytes):
         file_obj = wrap_as_stream(file_obj)
 
-
     if file_type[-3:] == 'zip':
         return is_zip()
     if 'tar' in file_type[-6:]:
         return is_tar()
     raise ValueError('Unsupported type passed!')
 
+
 def compress(info):
-    '''
-    Compress data stored in a dict. 
+    """
+    Compress data stored in a dict.
 
     Parameters
     -----------
@@ -1762,7 +1892,7 @@ def compress(info):
     Returns
     -----------
     compressed: bytes
-    '''
+    """
     if PY3:
         file_obj = BytesIO()
     else:
@@ -1771,7 +1901,11 @@ def compress(info):
     with zipfile.ZipFile(file_obj, 'w') as zipper:
         for name, data in info.items():
             if hasattr(data, 'read'):
+                # if we were passed a file object, read it
                 data = data.read()
+            if hasattr(data, 'encode'):
+                # if we were passed a string encode it as bytes
+                data = data.encode('utf-8')
             zipper.writestr(name, data)
     file_obj.seek(0)
     compressed = file_obj.read()
@@ -1779,7 +1913,7 @@ def compress(info):
 
 
 def split_extension(file_name, special=['tar.bz2', 'tar.gz']):
-    '''
+    """
     Find the file extension of a file name, including support for
     special case multipart file extensions (like .tar.gz)
 
@@ -1793,7 +1927,7 @@ def split_extension(file_name, special=['tar.bz2', 'tar.gz']):
     ----------
     extension: str, last charecters after a period, or
                a value from 'special'
-    '''
+    """
     file_name = str(file_name)
 
     if file_name.endswith(tuple(special)):
@@ -1804,7 +1938,7 @@ def split_extension(file_name, special=['tar.bz2', 'tar.gz']):
 
 
 def triangle_strips_to_faces(strips):
-    '''
+    """
     Given a sequence of triangle strips, convert them to (n,3) faces.
 
     Processes all strips at once using np.hstack and is signifigantly faster
@@ -1825,7 +1959,7 @@ def triangle_strips_to_faces(strips):
     Returns
     ------------
     faces: (m,3) int, vertex indices representing triangles
-    '''
+    """
 
     # save the length of each list in the list of lists
     lengths = np.array([len(i) for i in strips])
@@ -1858,7 +1992,7 @@ def triangle_strips_to_faces(strips):
 
 
 def vstack_empty(tup):
-    '''
+    """
     A thin wrapper for numpy.vstack that ignores empty lists.
 
     Parameters
@@ -1869,7 +2003,7 @@ def vstack_empty(tup):
     ------------
     stacked: (n,d) array, with same number of columns as
               constituent arrays.
-    '''
+    """
     stackable = [i for i in tup if len(i) > 0]
     if len(stackable) == 1:
         return stackable[0]
@@ -1879,7 +2013,7 @@ def vstack_empty(tup):
 
 
 def write_encoded(file_obj, stuff, encoding='utf-8'):
-    '''
+    """
     If a file is open in binary mode and a string is passed, encode and write
     If a file is open in text   mode and bytes are passed, decode and write
 
@@ -1889,7 +2023,7 @@ def write_encoded(file_obj, stuff, encoding='utf-8'):
     stuff:    str or bytes, stuff to be written
     encoding: str,          encoding of text
 
-    '''
+    """
     binary_file = 'b' in file_obj.mode
     string_stuff = isinstance(stuff, basestring)
     binary_stuff = isinstance(stuff, bytes)
@@ -1903,3 +2037,36 @@ def write_encoded(file_obj, stuff, encoding='utf-8'):
     else:
         file_obj.write(stuff)
     file_obj.flush()
+
+
+def unique_id(length=12):
+    """
+    Generate a decent looking alphanumeric unique identifier.
+    First 16 bits are time- incrementing, followed by randomness.
+
+    This function is used instead of calling:
+    uuid.uuid4().hex
+
+    Follows the advice in:
+    https://eager.io/blog/how-long-does-an-id-need-to-be/
+
+    Parameters
+    ------------
+    length: int, length of resuling identifier
+
+    Returns
+    ------------
+    unique: str, unique alphanumeric identifier
+    """
+    # head the identifier with 16 bits of time information
+    # this provides locality and reduces collision chances
+    head = np.array(time.time() % 2**16, dtype=np.uint16).tostring()
+    # get a bunch of random bytes
+    random = np.random.random(int(np.ceil(length / 5))).tostring()
+    # encode the time header and random information as base64
+    # replace + and / with spaces
+    unique = base64.b64encode(head + random,
+                              b'  ').decode('utf-8')
+    # remove spaces and cut to length
+    unique = unique.replace(' ', '')[:length]
+    return unique

@@ -1,3 +1,9 @@
+"""
+poses.py
+-----------
+
+Find stable orientations of meshes.
+"""
 import networkx as nx
 import numpy as np
 
@@ -6,9 +12,8 @@ from .triangles import points_to_barycentric
 
 
 def compute_stable_poses(mesh, center_mass=None,
-                         sigma=0.0, n_samples=1, threshold=0.0,
-                         max_num_iters=100000):
-    '''
+                         sigma=0.0, n_samples=1, threshold=0.0):
+    """
     Computes stable orientations of a mesh and their quasi-static probabilites.
 
     This method samples the location of the center of mass from a multivariate
@@ -44,7 +49,7 @@ def compute_stable_poses(mesh, center_mass=None,
                                      and the object just touching the table.
 
     probs:      list of floats,       a probability in (0, 1) for each pose
-    '''
+    """
 
     # save convex hull mesh to avoid a cache check
     cvh = mesh.convex_hull
@@ -75,8 +80,8 @@ def compute_stable_poses(mesh, center_mass=None,
         
         # Propogate probabilites to sink nodes with a breadth-first traversal
         nodes = [n for n in dg.nodes() if dg.in_degree(n) == 0]
-        num_iters = 0
-        while len(nodes) > 0 and num_iters < max_num_iters:
+        n_iters = 0
+        while len(nodes) > 0 and n_iters <= len(mesh.faces):
             new_nodes = []
             for node in nodes:
                 if dg.out_degree(node) == 0:
@@ -86,8 +91,8 @@ def compute_stable_poses(mesh, center_mass=None,
                 dg.node[node]['prob'] = 0.0
                 new_nodes.append(successor)
             nodes = new_nodes
-            num_iters += 1
-            
+            n_iters += 1
+
         # Collect stable poses
         poses = []
         for node in dg.nodes():
@@ -141,7 +146,7 @@ def compute_stable_poses(mesh, center_mass=None,
 
 
 def _orient3dfast(plane, pd):
-    '''
+    """
     Performs a fast 3D orientation test.
 
     Parameters
@@ -155,7 +160,7 @@ def _orient3dfast(plane, pd):
                    the given three points, if less than zero then pd is below
                    the given plane, and if equal to zero then pd is on the
                    given plane.
-    '''
+    """
     pa, pb, pc = plane
     adx = pa[0] - pd[0]
     bdx = pb[0] - pd[0]
@@ -173,7 +178,7 @@ def _orient3dfast(plane, pd):
 
 
 def _compute_static_prob(tri, com):
-    '''
+    """
     For an object with the given center of mass, compute
     the probability that the given tri would be the first to hit the
     ground if the object were dropped with a pose chosen uniformly at random.
@@ -186,7 +191,7 @@ def _compute_static_prob(tri, com):
     Returns
     -------
     prob: float, the probability in [0,1] for the given triangle
-    '''
+    """
     sv = [(v - com) / np.linalg.norm(v - com) for v in tri]
 
     # Use L'Huilier's Formula to compute spherical area
@@ -197,16 +202,16 @@ def _compute_static_prob(tri, com):
 
     # Prevents weirdness with arctan
     try:
-        return 1.0 / np.pi * np.arctan(np.sqrt(
-            np.tan(s / 2) * np.tan((s - a) / 2) * np.tan((s - b) / 2) * np.tan((s - c) / 2)))
+        return 1.0 / np.pi * np.arctan(np.sqrt(np.tan(s / 2) * np.tan(
+            (s - a) / 2) * np.tan((s - b) / 2) * np.tan((s - c) / 2)))
     except BaseException:
         s = s + 1e-8
-        return 1.0 / np.pi * np.arctan(np.sqrt(
-            np.tan(s / 2) * np.tan((s - a) / 2) * np.tan((s - b) / 2) * np.tan((s - c) / 2)))
+        return 1.0 / np.pi * np.arctan(np.sqrt(np.tan(s / 2) * np.tan(
+            (s - a) / 2) * np.tan((s - b) / 2) * np.tan((s - c) / 2)))
 
 
 def _create_topple_graph(cvh_mesh, com):
-    '''
+    """
     Constructs a toppling digraph for the given convex hull mesh and
     center of mass.
 
@@ -228,7 +233,7 @@ def _create_topple_graph(cvh_mesh, com):
     -------
     graph: networkx.DiGraph(), graph representing static probabilities and toppling
                                order for the convex hull
-    '''
+    """
     adj_graph = nx.Graph()
     topple_graph = nx.DiGraph()
 

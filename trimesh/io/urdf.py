@@ -2,7 +2,6 @@ import logging
 import os
 import subprocess
 
-import lxml.etree as et
 import numpy as np
 
 from ..decomposition import convex_decomposition
@@ -29,6 +28,8 @@ def export_urdf(mesh,
     ---------
     mesh: The decomposed mesh
     '''
+
+    import lxml.etree as et
 
     # Extract the save directory and the file name
     fullpath = os.path.abspath(directory)
@@ -83,8 +84,15 @@ def export_urdf(mesh,
         inertial = et.SubElement(link, 'inertial')
         et.SubElement(inertial, 'origin', xyz="0 0 0", rpy="0 0 0")
         et.SubElement(inertial, 'mass', value='{:.2E}'.format(piece.mass))
-        et.SubElement(inertial, 'inertia', ixx=I[0][0], ixy=I[0][1], ixz=I[0][2],
-                      iyy=I[1][1], iyz=I[1][2], izz=I[2][2])
+        et.SubElement(
+            inertial,
+            'inertia',
+            ixx=I[0][0],
+            ixy=I[0][1],
+            ixz=I[0][2],
+            iyy=I[1][1],
+            iyz=I[1][2],
+            izz=I[2][2])
         # Visual Information
         visual = et.SubElement(link, 'visual')
         et.SubElement(visual, 'origin', xyz="0 0 0", rpy="0 0 0")

@@ -4,7 +4,6 @@ dist: trusty
 
 python:
 - '2.7'
-- '3.3'
 - '3.4'
 - '3.5'
 - '3.6'
@@ -19,11 +18,12 @@ deploy:
   password:
     secure: HbsOtokNjlpRE98DpeeX1uPzMR3XWZbovtyPA2gS4eobkod7YyBXDgj30uOwcMvJMo4sX7Fi3X59qY43qHLiftTFhaMtN4+E1N0HaVVfmTi/Iv/L4qd4gMjCjg6M7N1wiCmYA+ceB8pAGOzLoo2K2uXixBfkeQjxUZjKTHfQYlM
   on:
+      python: '3.6'
       branch: master
       
 before_install:
 - sudo apt-get update
-- sudo apt-get install -y libgeos-dev libspatialindex-dev openscad blender
+- sudo apt-get install -y openscad blender
 - sudo wget https://github.com/mikedh/v-hacd-1/raw/master/bin/linux/testVHACD --quiet -P /usr/bin
 - sudo chmod +x /usr/bin/testVHACD
 
@@ -42,14 +42,16 @@ install:
   - conda config --add channels conda-forge  # rtree, shapely, pyembree
   - conda update -q conda
   - conda info -a
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION numpy scipy
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION numpy scipy rtree shapely
   - source activate test-environment
-  - conda install -c conda-forge scikit-image
-  - if [[ "$TRAVIS_PYTHON_VERSION" != "3.3" && "$TRAVIS_PYTHON_VERSION" != "3.4" ]]; then conda install pyembree rtree shapely && pip install python-fcl; fi
-  - pip install .[easy]
+  - pip install .
   - pip install nose2
 
 script: 
+- python -c "import trimesh"
+- pip install .[easy]
+- conda install -c conda-forge scikit-image
+- if [[ "$TRAVIS_PYTHON_VERSION" != "3.3" && "$TRAVIS_PYTHON_VERSION" != "3.4" ]]; then conda install pyembree && pip install python-fcl; fi
 - cd tests
 - nose2
 - cd ../examples

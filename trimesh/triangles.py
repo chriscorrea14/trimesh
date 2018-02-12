@@ -1,3 +1,9 @@
+"""
+triangles.py
+-------------
+
+Functions for dealing with triangle soups in (n, 3, 3) float form.
+"""
 import numpy as np
 
 from . import util
@@ -7,12 +13,12 @@ from .constants import tol, log
 
 
 def cross(triangles):
-    '''
+    """
     Returns the cross product of two edges from input triangles
 
     triangles: vertices of triangles (n,3,3)
     returns:   cross product of two edge vectors (n,3)
-    '''
+    """
 
     vectors = np.diff(triangles, axis=1)
     crosses = np.cross(vectors[:, 0], vectors[:, 1])
@@ -20,7 +26,7 @@ def cross(triangles):
 
 
 def area(triangles=None, crosses=None, sum=False):
-    '''
+    """
     Calculates the sum area of input triangles
 
     Parameters
@@ -33,7 +39,7 @@ def area(triangles=None, crosses=None, sum=False):
     area:
         if sum: float, sum area of triangles
         else:   (n,) float, individual area of triangles
-    '''
+    """
     if crosses is None:
         crosses = cross(triangles)
     area = (np.sum(crosses**2, axis=1)**.5) * .5
@@ -43,25 +49,35 @@ def area(triangles=None, crosses=None, sum=False):
 
 
 def normals(triangles=None, crosses=None):
-    '''
+    """
     Calculates the normals of input triangles
 
-    triangles: vertices of triangles, (n,3,3)
-    returns:   normal vectors, (n,3)
-    '''
+    Parameters
+    ------------
+    triangles: (n, 3, 3) float, vertex positions
+    crosses:   (n, 3) float, cross products of edge vectors
+
+    Returns
+    ------------
+    normals: (m, 3) float, normal vectors
+    valid:   (n,) bool, which normals were above threshold
+    """
     if crosses is None:
         crosses = cross(triangles)
-    normals, valid = util.unitize(crosses, check_valid=True)
+
+    # unitize the cross product vectors
+    normals, valid = util.unitize(crosses,
+                                  check_valid=True)
     return normals, valid
 
 
 def all_coplanar(triangles):
-    '''
+    """
     Given a list of triangles, return True if they are all coplanar, and False if not.
 
     triangles: vertices of triangles, (n,3,3)
     returns:   all_coplanar, bool
-    '''
+    """
     triangles = np.asanyarray(triangles, dtype=np.float64)
     if not util.is_shape(triangles, (-1, 3, 3)):
         raise ValueError('Triangles must be (n,3,3)!')
@@ -76,11 +92,11 @@ def all_coplanar(triangles):
 
 
 def any_coplanar(triangles):
-    '''
+    """
     Given a list of triangles, if the FIRST triangle is coplanar with ANY
     of the following triangles, return True.
     Otherwise, return False.
-    '''
+    """
     triangles = np.asanyarray(triangles, dtype=np.float64)
     if not util.is_shape(triangles, (-1, 3, 3)):
         raise ValueError('Triangles must be (n,3,3)!')
@@ -100,7 +116,7 @@ def mass_properties(triangles,
                     density=1.0,
                     center_mass=None,
                     skip_inertia=False):
-    '''
+    """
     Calculate the mass properties of a group of triangles.
 
     Implemented from:
@@ -117,7 +133,7 @@ def mass_properties(triangles,
     Returns
     ---------
     info: dict, mass properties
-    '''
+    """
     triangles = np.asanyarray(triangles, dtype=np.float64)
     if not util.is_shape(triangles, (-1, 3, 3)):
         raise ValueError('Triangles must be (n,3,3)!')
@@ -155,7 +171,8 @@ def mass_properties(triangles,
                                            (triangles[:, 1, triangle_i] * g1[:, i]) +
                                            (triangles[:, 2, triangle_i] * g2[:, i]))
 
-    coefficents = 1.0 / np.array([6, 24, 24, 24, 60, 60, 60, 120, 120, 120])
+    coefficents = 1.0 / np.array([6, 24, 24, 24, 60, 60, 60, 120, 120, 120],
+                                 dtype=np.float64)
     integrated = integral.sum(axis=1) * coefficents
 
     volume = integrated[0]
@@ -196,7 +213,7 @@ def mass_properties(triangles,
 
 
 def windings_aligned(triangles, normals_compare):
-    '''
+    """
     Given a list of triangles and a list of normals determine if the
     two are aligned
 
@@ -208,7 +225,7 @@ def windings_aligned(triangles, normals_compare):
     Returns
     ----------
     aligned: (n) bool list, are normals aligned with triangles
-    '''
+    """
     triangles = np.asanyarray(triangles, dtype=np.float64)
     if not util.is_shape(triangles, (-1, 3, 3)):
         raise ValueError('Triangles must be (n,3,3)!')
@@ -221,7 +238,7 @@ def windings_aligned(triangles, normals_compare):
 
 
 def bounds_tree(triangles):
-    '''
+    """
     Given a list of triangles, create an r-tree for broad- phase
     collision detection
 
@@ -232,7 +249,7 @@ def bounds_tree(triangles):
     Returns
     ---------
     tree: Rtree object
-    '''
+    """
     triangles = np.asanyarray(triangles, dtype=np.float64)
     if not util.is_shape(triangles, (-1, 3, 3)):
         raise ValueError('Triangles must be (n,3,3)!')
@@ -244,11 +261,10 @@ def bounds_tree(triangles):
     return tree
 
 
-def nondegenerate(triangles, areas=None):
-    '''
+def nondegenerate(triangles, areas=None, height=None):
+    """
     Find all triangles which have an oriented bounding box
-    where both of the two sides is larger than tol.merge and
-    both edge vectors are longer than tol.merge.
+    where both of the two sides is larger than a specified height.
 
     Degenerate triangles can be when:
     1) Two of the three vertices are colocated
@@ -258,26 +274,29 @@ def nondegenerate(triangles, areas=None):
     Parameters
     ----------
     triangles: (n, 3, 3) float, list of triangles
-
+    height:    float, minimum edge of a triangle to be kept
 
     Returns
     ----------
     nondegenerate: (n,) bool array of triangles that have area
-    '''
+    """
     triangles = np.asanyarray(triangles, dtype=np.float64)
     if not util.is_shape(triangles, (-1, 3, 3)):
         raise ValueError('Triangles must be (n,3,3)!')
 
+    if height is None:
+        height = tol.merge
+
     # if both edges of the triangles OBB are longer than tol.merge
     # we declare them to be nondegenerate
     ok = (extents(triangles=triangles,
-                  areas=areas) > tol.merge).all(axis=1)
+                  areas=areas) > height).all(axis=1)
 
     return ok
 
 
 def extents(triangles, areas=None):
-    '''
+    """
     Return the 2D bounding box size of each triangle.
 
 
@@ -290,7 +309,7 @@ def extents(triangles, areas=None):
     Returns
     ----------
     box:       (n,2) float, the size of the 2D oriented bounding box.
-    '''
+    """
     triangles = np.asanyarray(triangles, dtype=np.float64)
     if not util.is_shape(triangles, (-1, 3, 3)):
         raise ValueError('Triangles must be (n,3,3)!')
@@ -323,7 +342,7 @@ def extents(triangles, areas=None):
 
 
 def barycentric_to_points(triangles, barycentric):
-    '''
+    """
     Convert a list of barycentric coordinates on a list of triangles
     to cartesian points.
 
@@ -335,7 +354,7 @@ def barycentric_to_points(triangles, barycentric):
     Returns
     -----------
     points: (m,3) float, points in space
-    '''
+    """
     barycentric = np.asanyarray(barycentric, dtype=np.float64)
     triangles = np.asanyarray(triangles, dtype=np.float64)
 
@@ -357,7 +376,7 @@ def barycentric_to_points(triangles, barycentric):
 
 
 def points_to_barycentric(triangles, points, method='cramer'):
-    '''
+    """
     Find the barycentric coordinates of points relative to triangles.
 
     The Cramer's rule solution implements:
@@ -379,7 +398,7 @@ def points_to_barycentric(triangles, points, method='cramer'):
     Returns
     -----------
     barycentric: (n,3) float, barycentric
-    '''
+    """
 
     def method_cross():
         n = np.cross(edge_vectors[:, 0], edge_vectors[:, 1])
@@ -427,7 +446,7 @@ def points_to_barycentric(triangles, points, method='cramer'):
 
 
 def closest_point(triangles, points):
-    '''
+    """
     Return the closest point on the surface of each triangle for a
     list of corresponding points.
 
@@ -439,7 +458,7 @@ def closest_point(triangles, points):
     Returns
     ----------
     closest: (n,3) float, point on each triangle closest to each point
-    '''
+    """
 
     # establish that input triangles and points are sane
     triangles = np.asanyarray(triangles, dtype=np.float64)
@@ -496,7 +515,7 @@ def closest_point(triangles, points):
 
 
 def to_kwargs(triangles):
-    '''
+    """
     Convert a list of triangles to the kwargs for the Trimesh constructor.
 
     Parameters
@@ -512,7 +531,7 @@ def to_kwargs(triangles):
     Examples
     ---------
     mesh = trimesh.Trimesh(**trimesh.triangles.to_kwargs(triangles))
-    '''
+    """
     triangles = np.asanyarray(triangles, dtype=np.float64)
     if not util.is_shape(triangles, (-1, 3, 3)):
         raise ValueError('Triangles must be (n,3,3)!')

@@ -7,35 +7,35 @@ import numpy as np
 
 
 class NumericalToleranceMesh(object):
-    '''
+    """
     tol.zero: consider floating point numbers less than this zero
+
     tol.merge: when merging vertices, consider vertices closer than this
                to be the same vertex. Here we use the same value (1e-8)
                as SolidWorks uses, according to their documentation.
+
     tol.planar: the maximum distance from a plane a point can be and
                 still be considered to be on the plane
-    tol.facet_min_radius: the minimum radius that an arc drawn from the
-                   non-shared vertices of an adjacency pair with the
-                   same swept angle as the adjacency pair
-                   be to consider the two faces coplanar. This method is more
-                   robust than considering just normal angles as it is tolerant
-                   of numerical error on very small faces.
-    '''
+
+    tol.facet_threshold: threshold for two facets to be considered coplanar
+    """
 
     def __init__(self, **kwargs):
-        self.zero = 1e-12
+        # set our zero for floating point comparision to 100x
+        # the resolution of float64 which works out to 1e-13
+        self.zero = np.finfo(np.float64).resolution * 100
         self.merge = 1e-8
         self.planar = 1e-5
         self.facet_threshold = 5000
         self.fit = 1e-2
-        self.id_len = 6
+
         self.__dict__.update(kwargs)
 
 
 class NumericalResolutionMesh(object):
-    '''
+    """
     res.mesh: when meshing solids, what distance to use
-    '''
+    """
 
     def __init__(self, **kwargs):
         self.mesh = .01
@@ -50,7 +50,7 @@ res = NumericalResolutionMesh()
 
 
 class NumericalTolerancePath(object):
-    '''
+    """
     tol.zero: consider floating point numbers less than this zero
     tol.merge: when merging vertices, consider vertices closer than this
                to be the same vertex
@@ -71,7 +71,7 @@ class NumericalTolerancePath(object):
                     radius multiplied by document scale for an acceptable fit
     tol.tangent: when simplifying line segments to curves, what is the maximum
                  angle the end sections can deviate from tangent that is acceptable.
-    '''
+    """
 
     def __init__(self, **kwargs):
         # default values
@@ -93,7 +93,7 @@ class NumericalTolerancePath(object):
 
 
 class NumericalResolutionPath(object):
-    '''
+    """
     res.seg_frac: when discretizing curves, what percentage of the drawing
                   scale should we aim to make a single segment
     res.seg_angle: when discretizing curves, what angle should a section span
@@ -102,7 +102,7 @@ class NumericalResolutionPath(object):
     res.min_sections: when discretizing splines, what is the minimum number
                       of segments per control point
     res.export: format string to use when exporting floating point vertices
-    '''
+    """
 
     def __init__(self, **kwargs):
         self.seg_frac = .05

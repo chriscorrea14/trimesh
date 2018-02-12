@@ -122,10 +122,8 @@ def load_dxf(file_obj):
         lines = np.column_stack((e['10'], e['20'])).astype(np.float64)
 
         # 70 is the closed flag for polylines
-        # if the closed flag is set, make sure we connect the end to the
-        # beginning
-        if ('70' in e and
-                int(e['70'][0]) == 1):
+        # if the closed flag is set make sure to close
+        if ('70' in e and int(e['70'][0]) == 1):
             lines = np.vstack((lines, lines[:1]))
 
         # 42 is the bulge flag for polylines
@@ -228,13 +226,16 @@ def export_dxf(path):
     ----------
     export: str, path formatted as a DXF file
     '''
-    def format_points(points, increment=True):
+    def format_points(points,
+                      as_2D=False,
+                      increment=True):
         '''
         Format points into DXF- style point string.
 
         Parameters
         -----------
-        points: (n,2) or (n,3) float, points in space
+        points:    (n,2) or (n,3) float, points in space
+        as_2D:     bool, if True only output 2 points per vertex
         increment: bool, if True increment group code per point
                    Example:
                        [[X0, Y0, Z0], [X1, Y1, Z1]]
@@ -249,16 +250,20 @@ def export_dxf(path):
         points = np.asanyarray(points, dtype=np.float64)
         three = three_dimensionalize(points, return_2D=False)
         if increment:
-            group = np.tile(
-                np.arange(
-                    len(three), dtype=np.int).reshape(
-                    (-1, 1)), (1, 3))
+            group = np.tile(np.arange(len(three),
+                                      dtype=np.int).reshape((-1, 1)),
+                            (1, 3))
         else:
             group = np.zeros((len(three), 3), dtype=np.int)
         group += [10, 20, 30]
 
-        packed = '\n'.join('{:d}\n{:.12f}'.format(g, v) for g, v in zip(group.reshape(-1),
-                                                                        three.reshape(-1)))
+        if as_2D:
+            group = group[:, :2]
+            three = three[:, :2]
+
+        packed = '\n'.join('{:d}\n{:.12f}'.format(g, v)
+                           for g, v in zip(group.reshape(-1),
+                                           three.reshape(-1)))
 
         return packed
 
@@ -274,7 +279,7 @@ def export_dxf(path):
         ----------
         subs: dict, with keys 'COLOR', 'LAYER', 'NAME'
         '''
-        subs = {'COLOR': 255,
+        subs = {'COLOR': 255,  # default is ByLayer
                 'LAYER': 0,
                 'NAME': str(id(entity))[:16]}
 
@@ -291,11 +296,16 @@ def export_dxf(path):
 
     def convert_line(line, vertices):
         points = line.discrete(vertices)
-        is_polyline = len(points) > 2
 
         subs = entity_info(line)
-        subs['POINTS'] = format_points(points, increment=not is_polyline)
-        subs['TYPE'] = ['LINE', 'LWPOLYLINE'][int(is_polyline)]
+        subs['POINTS'] = format_points(points,
+                                       as_2D=True,
+                                       increment=False)
+        subs['TYPE'] = 'LWPOLYLINE'
+        subs['VCOUNT'] = len(points)
+        # 1 is closed
+        # 0 is default (open)
+        subs['FLAG'] = int(bool(line.closed))
 
         result = templates['line'].substitute(subs)
         return result

@@ -16,8 +16,10 @@ from .stl import _stl_loaders
 from .misc import _misc_loaders
 from .gltf import _gltf_loaders
 from .assimp import _assimp_loaders
+from .threemf import _three_loaders
 from .wavefront import _obj_loaders
 from .xml_based import _xml_loaders
+
 
 try:
     from ..path.io.load import load_path, path_formats
@@ -25,10 +27,10 @@ except BaseException:
     _path_traceback = traceback.format_exc(4)
 
     def load_path(*args, **kwargs):
-        '''
+        """
         Dummy load path function that will raise an exception on use.
         Import of path failed, probably because a dependency is not installed.
-        '''
+        """
         print(_path_traceback)
         raise ImportError('No path functionality available!')
 
@@ -48,7 +50,7 @@ def available_formats():
 
 
 def load(file_obj, file_type=None, **kwargs):
-    '''
+    """
     Load a mesh or vectorized path into a Trimesh, Path2D, or Path3D object.
 
     Parameters
@@ -59,7 +61,7 @@ def load(file_obj, file_type=None, **kwargs):
     Returns
     ---------
     geometry: Trimesh, Path2D, Path3D, or list of same.
-    '''
+    """
     # check to see if we're trying to load something that is already a Trimesh
     out_types = ('Trimesh', 'Path')
     if any(util.is_instance_named(file_obj, t) for t in out_types):
@@ -101,7 +103,7 @@ def load(file_obj, file_type=None, **kwargs):
 
 @_log_time
 def load_mesh(file_obj, file_type=None, **kwargs):
-    '''
+    """
     Load a mesh file into a Trimesh object
 
     Parameters
@@ -115,7 +117,7 @@ def load_mesh(file_obj, file_type=None, **kwargs):
     mesh: Trimesh object, or a list of Trimesh objects
           depending on the file format.
 
-    '''
+    """
     # turn a string into a file obj and type
     (file_obj,
      file_type,
@@ -147,7 +149,7 @@ def load_mesh(file_obj, file_type=None, **kwargs):
 
 
 def load_compressed(file_obj, file_type=None):
-    '''
+    """
     Given a compressed archive, load all the geometry that we can from it.
 
     Parameters
@@ -158,7 +160,7 @@ def load_compressed(file_obj, file_type=None):
     Returns
     ----------
     geometries: list of geometry objects
-    '''
+    """
     # turn a string into a file obj and type
     (file_obj,
      file_type,
@@ -182,31 +184,31 @@ def load_compressed(file_obj, file_type=None):
 
 
 def load_kwargs(*args, **kwargs):
-    '''
+    """
     Load geometry from a properly formatted dict or kwargs
 
-    '''
+    """
     def handle_scene():
-        '''
+        """
         Load a scene from our kwargs:
 
         class:      Scene
         geometry:   dict, name: Trimesh kwargs
         graph:      list of dict, kwargs for scene.graph.update
         base_frame: str, base frame of graph
-        '''
+        """
         scene = Scene()
         scene.geometry.update({k: load_kwargs(v) for
                                k, v in kwargs['geometry'].items()})
-
         for k in kwargs['graph']:
             if isinstance(k, dict):
                 scene.graph.update(**k)
             elif util.is_sequence(k) and len(k) == 3:
                 scene.graph.update(k[1], k[0], **k[2])
-
         if 'base_frame' in kwargs:
             scene.graph.base_frame = kwargs['base_frame']
+        if 'metadata' in kwargs:
+            scene.metadata.update(kwargs['metadata'])
 
         return scene
 
@@ -248,7 +250,7 @@ def load_kwargs(*args, **kwargs):
 
 
 def _parse_file_args(file_obj, file_type, **kwargs):
-    '''
+    """
     Given a file_obj and a file_type, try to turn them into a file-like object
     and a lowercase string of file type
 
@@ -286,7 +288,7 @@ def _parse_file_args(file_obj, file_type, **kwargs):
     -----------
     file_obj:  loadable object
     file_type: str, lower case of the type of file (eg 'stl', 'dae', etc)
-    '''
+    """
     metadata = {}
     if ('metadata' in kwargs and
             isinstance(kwargs['metadata'], dict)):
@@ -297,16 +299,22 @@ def _parse_file_args(file_obj, file_type, **kwargs):
             'File type must be specified when passing file objects!')
     if util.is_string(file_obj):
         try:
-            exists = os.path.isfile(file_obj)
-        except TypeError:
+            # os.path.isfile will return False incorrectly
+            # if we don't give it an absolute path
+            file_path = os.path.expanduser(file_obj)
+            file_path = os.path.abspath(file_path)
+            exists = os.path.isfile(file_path)
+        except BaseException:
             exists = False
+
         if exists:
-            metadata['file_path'] = file_obj
+            metadata['file_path'] = file_path
             metadata['file_name'] = os.path.basename(file_obj)
             # if file_obj is a path that exists use extension as file_type
-            file_type = util.split_extension(file_obj,
-                                             special=['tar.gz', 'tar.bz2'])
-            file_obj = open(file_obj, 'rb')
+            if file_type is None:
+                file_type = util.split_extension(file_path,
+                                                 special=['tar.gz', 'tar.bz2'])
+            file_obj = open(file_path, 'rb')
         else:
             if file_type is not None:
                 return file_obj, file_type, metadata
@@ -345,3 +353,4 @@ mesh_loaders.update(_ply_loaders)
 mesh_loaders.update(_xml_loaders)
 mesh_loaders.update(_obj_loaders)
 mesh_loaders.update(_gltf_loaders)
+mesh_loaders.update(_three_loaders)

@@ -43,6 +43,7 @@ class SimplifyTest(g.unittest.TestCase):
         assert path.md5() == md5_pre
 
     def test_simplify(self):
+
         for file_name in ['2D/cycloidal.dxf',
                           '2D/125_cycloidal.DXF',
                           '2D/spline_1.dxf']:
