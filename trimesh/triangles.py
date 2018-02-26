@@ -16,10 +16,14 @@ def cross(triangles):
     """
     Returns the cross product of two edges from input triangles
 
-    triangles: vertices of triangles (n,3,3)
-    returns:   cross product of two edge vectors (n,3)
-    """
+    Parameters
+    --------------
+    triangles: (n, 3, 3) float, vertices of triangles
 
+    Returns
+    --------------
+    crosses: (n, 3) float, cross product of two edge vectors
+    """
     vectors = np.diff(triangles, axis=1)
     crosses = np.cross(vectors[:, 0], vectors[:, 1])
     return crosses
@@ -54,29 +58,32 @@ def normals(triangles=None, crosses=None):
 
     Parameters
     ------------
-    triangles: (n, 3, 3) float, vertex positions
-    crosses:   (n, 3) float, cross products of edge vectors
+    triangles:   (n, 3, 3) float, vertex positions
+    crosses:     (n, 3) float, cross products of edge vectors
 
     Returns
     ------------
     normals: (m, 3) float, normal vectors
-    valid:   (n,) bool, which normals were above threshold
+    valid:   (n,)   bool, valid
     """
     if crosses is None:
         crosses = cross(triangles)
-
     # unitize the cross product vectors
-    normals, valid = util.unitize(crosses,
-                                  check_valid=True)
-    return normals, valid
+    unit, valid = util.unitize(crosses, check_valid=True)
+    return unit, valid
 
 
 def all_coplanar(triangles):
     """
-    Given a list of triangles, return True if they are all coplanar, and False if not.
+    Check to see if a list of triangles are all coplanar
 
-    triangles: vertices of triangles, (n,3,3)
-    returns:   all_coplanar, bool
+    Parameters
+    ----------------
+    triangles: (n, 3, 3) float, vertices of triangles
+
+    Returns
+    ---------------
+    all_coplanar, bool, True if all triangles are coplanar
     """
     triangles = np.asanyarray(triangles, dtype=np.float64)
     if not util.is_shape(triangles, (-1, 3, 3)):
@@ -232,9 +239,11 @@ def windings_aligned(triangles, normals_compare):
 
     calculated, valid = normals(triangles)
     difference = util.diagonal_dot(calculated, normals_compare[valid])
-    result = np.zeros(len(triangles), dtype=np.bool)
-    result[valid] = difference > 0.0
-    return result
+
+    aligned = np.zeros(len(triangles), dtype=np.bool)
+    aligned[valid] = difference > 0.0
+
+    return aligned
 
 
 def bounds_tree(triangles):

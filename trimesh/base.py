@@ -183,11 +183,13 @@ class Trimesh(object):
 
         Does this by:
             1) removing NaN and Inf values
+
             2) merging duplicate vertices
+
         If self._validate:
-            3) remove degenerate triangles, defined as a triangle
-               with one edge of their rectangular 2D oriented bounding
-               box as less than tol.merge, which is 1e-8 by default
+            3) Remove triangles which have one edge of their rectangular 2D
+               oriented bounding box shorter than tol.merge
+
             4) remove duplicated triangles
 
         Returns
@@ -294,7 +296,7 @@ class Trimesh(object):
                                        indices=self.faces)
         return sparse
 
-    @property
+    @util.cache_decorator
     def face_normals(self):
         """
         Return the unit normal vector for each face.
@@ -309,30 +311,19 @@ class Trimesh(object):
         # if the shape of the cached normals is incorrect, generate normals
         if (np.shape(self._cache['face_normals']) !=
                 np.shape(self._data['faces'])):
-
             log.debug('generating face normals as shape was incorrect')
-            # use cached triangle cross products
-            face_normals, valid = triangles.normals(
-                crosses=self.triangles_cross)
-            # store valid mask
-            self._cache['face_normals_valid'] = valid
-
+            # use cached triangle cross products to generate normals
+            # this will always return the correct shape but some values
+            # will be zero or an arbitrary vector if the inputs had a cross
+            # produce below machine epsilon
+            normals, valid = triangles.normals(triangles=self.triangles,
+                                               crosses=self.triangles_cross)
             if valid.all():
-                # every face has a valid normal so we can just go home
-                self._cache['face_normals'] = face_normals
-            else:
-                # some face are degenerate and we don't want to change shapes
-                # so generate face normals of the correct shape and for
-                # invalid normals set them to an arbitrary unit vector
-                # we could set them to a 0 magnitude vector but the odds
-                # of that screwing up a calculation seem high
-                shaped = np.zeros((len(valid), 3), dtype=np.float64)
-                # the arbitary vector we were talking about
-                shaped += [1.0, 0.0, 0.0]
-                # for valid normals set them to the actual value
-                shaped[valid] = face_normals
-                self._cache['face_normals'] = shaped
-        return self._cache['face_normals']
+                return normals
+            # make a padded list of normals to make sure shape is correct
+            padded = np.zeros((len(self.triangles), 3), dtype=np.float64)
+            padded[valid] = normals
+            return padded
 
     @face_normals.setter
     def face_normals(self, values):
@@ -354,13 +345,13 @@ class Trimesh(object):
         """
         The vertices of the mesh.
 
-        This is regarded as core information which cannot be regenerated from cache,
-        and as such is stored in self._data, which tracks the array for changes
-        and clears cached values of the mesh if this is altered.
+        This is regarded as core information which cannot be regenerated
+        from cache and as such is stored in self._data which tracks the array
+        for changes and clears cached values of the mesh if this is altered.
 
         Returns
         ----------
-        vertices: (n,3) float representing points in cartesian space
+        vertices: (n, 3) float representing points in cartesian space
         """
         return self._data['vertices']
 
@@ -706,61 +697,10 @@ class Trimesh(object):
                   'radial'     Symmetric around an axis
                   'spherical'  Symmetric around a point
         """
-        # if not a volume this is meaningless
-        if not self.is_volume:
-            return None
-
-        # the sorted order of the principal components of inertia (3,) float
-        order = self.principal_inertia_components.argsort()
-
-        # we are checking if a geometry has radial symmetry
-        # if 2 of the PCI are equal, it is a revolved 2D profile
-        # if 3 of the PCI (all of them) are equal it is a sphere
-        # thus we take the diff of the sorted PCI, scale it as a ratio
-        # of the largest PCI, and then scale to the tolerance we care about
-        # if tol is 1e-3, that means that 2 components are identical if they
-        # are within .1% of the maximum PCI.
-        diff = np.abs(np.diff(self.principal_inertia_components[order]))
-        diff /= np.abs(self.principal_inertia_components).max()
-        # diffs that are within tol of zero
-        diff_zero = (diff / 1e-3).astype(int) == 0
-
-        if diff_zero.all():
-            # this is the case where all 3 PCI are identical
-            # this means that the geometry is symmetric about a point
-            # examples of this are a sphere, icosahedron, etc
-            self._cache['symmetry_axis'] = self.principal_inertia_vectors[0]
-            self._cache[
-                'symmetry_section'] = self.principal_inertia_vectors[1:]
-            return 'spherical'
-
-        elif diff_zero.any():
-            # this is the case for 2/3 PCI are identical
-            # this means the geometry is symmetric about an axis
-            # probably a revolved 2D profile
-
-            # we know that only 1/2 of the diff values are True
-            # if the first diff is 0, it means if we take the first element
-            # in the ordered PCI we will have one of the non- revolve axis
-            # if the second diff is 0, we take the last element of
-            # the ordered PCI for the section axis
-            # if we wanted the revolve axis we would just switch [0,-1] to
-            # [-1,0]
-
-            # since two vectors are the same, we know the middle
-            # one is one of those two
-            section_index = order[np.array([[0, 1],
-                                            [1, -1]])[diff_zero]].flatten()
-            self._cache['symmetry_section'] = self.principal_inertia_vectors[
-                section_index]
-
-            # we know the rotation axis is the sole unique value
-            # and is either first or last of the sorted values
-            axis_index = order[np.array([-1, 0])[diff_zero]][0]
-            self._cache['symmetry_axis'] = self.principal_inertia_vectors[
-                axis_index]
-            return 'radial'
-        return None
+        symmetry, axis, section = inertia.radial_symmetry(self)
+        self._cache['symmetry_axis'] = axis
+        self._cache['symmetry_section'] = section
+        return symmetry
 
     @property
     def symmetry_axis(self):
@@ -989,17 +929,31 @@ class Trimesh(object):
         inverse:     (len(self.vertices)) int array to reconstruct
                      vertex references (such as output by np.unique)
         """
-        mask = np.asanyarray(mask)
-        if mask.dtype.name == 'bool' and mask.all():
-            return
-        if len(mask) == 0 or self.is_empty:
+        # if the mesh is already empty we can't remove anything
+        if self.is_empty:
             return
 
-        if inverse is not None:
+        # make sure mask is a numpy array
+        mask = np.asanyarray(mask)
+
+        if ((mask.dtype.name == 'bool' and mask.all()) or
+                len(mask) == 0 or self.is_empty):
+            # mask doesn't remove any vertices so exit early
+            return
+
+        # re- index faces from inverse
+        if inverse is not None and util.is_shape(self.faces, (-1, 3)):
             self.faces = inverse[self.faces.reshape(-1)].reshape((-1, 3))
+
+        # update the visual object with our mask
         self.visual.update_vertices(mask)
+        # get the normals from cache before dumping
         cached_normals = self._cache.get('vertex_normals')
+
+        # actually apply the mask
         self.vertices = self.vertices[mask]
+
+        # if we had passed vertex normals try to save them
         if util.is_shape(cached_normals, (-1, 3)):
             try:
                 self.vertex_normals = cached_normals[mask]
@@ -1017,24 +971,32 @@ class Trimesh(object):
         ---------
         valid: either (m) int, or (len(self.faces)) bool.
         """
+        # if the mesh is already empty we can't remove anything
         if self.is_empty:
             return
+
         mask = np.asanyarray(mask)
-        if mask.dtype.name == 'bool':
-            if mask.all():
-                return
-        elif mask.dtype.name != 'int':
-            mask = mask.astype(np.int)
+        if mask.dtype.name == 'bool' and mask.all():
+            # mask removes no faces so exit early
+            return
+
+        # try to save face normals before dumping cache
         cached_normals = self._cache.get('face_normals')
-        if util.is_shape(cached_normals, (-1, 3)):
-            self.face_normals = cached_normals[mask]
+
         faces = self._data['faces']
         # if Trimesh has been subclassed and faces have been moved from data
         # to cache, get faces from cache.
         if not util.is_shape(faces, (-1, 3)):
             faces = self._cache['faces']
+
+        # actually apply the mask
         self.faces = faces[mask]
+        # apply the mask to the visual object
         self.visual.update_faces(mask)
+
+        # if our normals were the correct shape apply them
+        if util.is_shape(cached_normals, (-1, 3)):
+            self.face_normals = cached_normals[mask]
 
     def remove_infinite_values(self):
         """
@@ -1047,13 +1009,15 @@ class Trimesh(object):
         self.faces:    masked to remove np.inf/np.nan
         self.vertices: masked to remove np.inf/np.nan
         """
-        # (len(self.faces),) bool, mask for faces
-        faces = np.isfinite(self.faces).all(axis=1)
-        # (len(self.vertices),) bool, mask for vertices
-        vertices = np.isfinite(self.vertices).all(axis=1)
-        # apply the masks
-        self.update_faces(faces)
-        self.update_vertices(vertices)
+        if util.is_shape(self.faces, (-1, 3)):
+            # (len(self.faces),) bool, mask for faces
+            face_mask = np.isfinite(self.faces).all(axis=1)
+            self.update_faces(face_mask)
+
+        if util.is_shape(self.vertices, (-1, 3)):
+            # (len(self.vertices),) bool, mask for vertices
+            vertex_mask = np.isfinite(self.vertices).all(axis=1)
+            self.update_vertices(vertex_mask)
 
     def remove_duplicate_faces(self):
         """
@@ -1387,7 +1351,7 @@ class Trimesh(object):
         tree = KDTree(self.vertices.view(np.ndarray))
         return tree
 
-    def remove_degenerate_faces(self, height=None):
+    def remove_degenerate_faces(self, height=tol.merge):
         """
         Remove degenerate faces (faces without 3 unique vertex indices)
         from the current mesh.
@@ -1401,17 +1365,17 @@ class Trimesh(object):
         ------------
         height: float, if specified removes faces with an oriented bounding
                 box shorter than this on one side.
+
+        Returns
+        -------------
+        nondegenerate: (len(self.faces),) bool, mask used to remove faces
         """
-        if height is None:
-            # populate valid mask
-            normals = self.face_normals
-            if 'face_normals_valid' in self._cache:
-                self.update_faces(self._cache['face_normals_valid'])
-        else:
-            nondegenerate = triangles.nondegenerate(self.triangles,
-                                                    areas=self.area_faces,
-                                                    height=height)
-            self.update_faces(nondegenerate)
+        nondegenerate = triangles.nondegenerate(self.triangles,
+                                                areas=self.area_faces,
+                                                height=height)
+        self.update_faces(nondegenerate)
+
+        return nondegenerate
 
     @util.cache_decorator
     def facets(self):
