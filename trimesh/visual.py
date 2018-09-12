@@ -33,6 +33,187 @@ from . import util
 from . import caching
 from . import grouping
 
+class Visuals(object):
+
+    def __init__(self, mesh=None, material=None):
+        self.mesh = mesh
+        self._data = caching.DataStore()
+        self._cache = caching.Cache(id_function=self.crc)
+
+        if material is None:
+            self.material =  {
+                'diffuse': np.array([102, 102, 102, 255],
+                                            dtype=np.uint8),
+                'ambient': np.array([64, 64, 64, 255],
+                                            dtype=np.uint8),
+                'specular': np.array([197, 197, 197, 255],
+                                            dtype=np.uint8),
+                'shine': 77.0}
+        else:
+            self.material = material
+
+    @property
+    def material(self):
+        """
+        Return the material properties for the mesh
+
+        Returns
+        -------
+        material: dict, map from four material properties to values
+        """
+        return self._data['material_properties']
+
+    @material.setter
+    def material(self, material):
+        if ('ambient' not in material or
+            'diffuse' not in material or
+            'specular' not in material or
+            'shine' not in material):
+            raise ValueError('material requires ambient, diffuse, \
+                              specular, and shine values')
+
+        self._data['material_properties'] = material
+        self._cache.verify()
+
+    def crc(self):
+        """
+        A checksum for the current visual object and its parent mesh.
+
+        Returns
+        ----------
+        crc: int, checksum of data in visual object and its parent mesh
+        """
+        # will make sure everything has been transferred
+        # to datastore that needs to be before returning crc
+
+        result = self._data.crc()
+        if hasattr(self.mesh, 'crc'):
+            # bitwise xor combines hashes better than a sum
+            result ^= self.mesh.crc()
+        return result
+
+    def defined(self):
+        pass
+
+    def update_faces(self, mask):
+        pass
+
+    def update_vertices(self, mask):
+        pass
+
+    def face_subset(self, face_index):
+        """
+        Given a mask of face indices, return a sliced version.
+
+        Parameters
+        ----------
+        face_index: (n,) int, mask for faces
+                    (n,) bool, mask for faces
+
+        Returns
+        ----------
+        visual: ColorVisuals object containing a subset of faces.
+        """
+        if self.defined:
+            result = ColorVisuals(
+                face_colors=self.face_colors[face_index])
+        else:
+            result = ColorVisuals()
+
+        return result
+
+    def ver
+
+class TextureVisuals(object):
+    """
+    Store texture map for a mesh.
+    """
+
+    def __init__(self,
+                 mesh=None,
+                 texture_coords=None,
+                 texture_image=None,
+                 **kwargs):
+        self.mesh = mesh
+        self._data = caching.DataStore()
+        self._cache = caching.Cache(id_function=self.crc)
+
+        if texture_image is not None:
+            self.texture_image = texture_image
+
+    def crc(self):
+        """
+        A checksum for the current visual object and its parent mesh.
+
+        Returns
+        -------
+        crc: int, checksum of data in visual object and its parent mesh
+        """
+        # will make sure everything has been transferred
+        # to datastore that needs to be before returning crc
+
+        result = self._data.crc()
+        if hasattr(self.mesh, 'crc'):
+            # bitwise xor combines hashes better than a sum
+            result ^= self.mesh.crc()
+        return result
+
+    @property
+    def texture_image(self):
+        if 'texture_image' in self._data:
+            return self._data['texture_image']
+        return None
+
+    @texture_image.setter
+    def texture_image(self, texture_image):
+        self._data['texture_image'] = texture_image
+        self._cache.verify()
+
+    @property
+    def texture_coords(self):
+        if 'texture_coords' in self._data:
+            return self._data['texture_coords']
+        return None
+
+    @texture_coords.setter
+    def texture_coords(self, texture_image):
+        self._data['texture_coords'] = texture_coords
+
+    def update_vertices(self, mask):
+        """
+        Apply a mask to remove or duplicate vertex properties.
+        """
+        self._update_key(mask, 'vertex_colors')
+
+    def update_faces(self, mask):
+        """
+        Apply a mask to remove or duplicate face properties
+        """
+        self._update_key(mask, 'face_colors')
+
+    def face_subset(self, face_index):
+        """
+        Given a mask of face indices, return a sliced version.
+
+        Parameters
+        ----------
+        face_index: (n,) int, mask for faces
+                    (n,) bool, mask for faces
+
+        Returns
+        ----------
+        visual: ColorVisuals object containing a subset of faces.
+        """
+        if self.defined:
+            result = ColorVisuals(
+                face_colors=self.face_colors[face_index])
+        else:
+            result = ColorVisuals()
+
+        return result
+
+    def _verify_crc(self):
+        return
 
 class ColorVisuals(object):
     """
@@ -43,6 +224,7 @@ class ColorVisuals(object):
                  mesh=None,
                  face_colors=None,
                  vertex_colors=None,
+                 material=None,
                  **kwargs):
         """
         Store color information about a mesh.
@@ -58,14 +240,17 @@ class ColorVisuals(object):
         self._data = caching.DataStore()
         self._cache = caching.Cache(id_function=self.crc)
 
-        self.defaults = {
-            'material_diffuse': np.array([102, 102, 102, 255],
-                                         dtype=np.uint8),
-            'material_ambient': np.array([64, 64, 64, 255],
-                                         dtype=np.uint8),
-            'material_specular': np.array([197, 197, 197, 255],
-                                          dtype=np.uint8),
-            'material_shine': 77.0}
+        if material is None:
+            self.material =  {
+                'diffuse': np.array([102, 102, 102, 255],
+                                            dtype=np.uint8),
+                'ambient': np.array([64, 64, 64, 255],
+                                            dtype=np.uint8),
+                'specular': np.array([197, 197, 197, 255],
+                                            dtype=np.uint8),
+                'shine': 77.0}
+        else:
+            self.material = material
 
         if face_colors is not None:
             self.face_colors = face_colors
@@ -225,6 +410,29 @@ class ColorVisuals(object):
         # if we set any color information, clear the others
         self._data.clear()
         self._data['vertex_colors'] = colors
+        self._cache.verify()
+
+    @property
+    def material(self):
+        """
+        Return the material properties for the mesh
+
+        Returns
+        -------
+        material: dict, map from four material properties to values
+        """
+        return self._data['material_properties']
+
+    @material.setter
+    def material(self, material):
+        if ('ambient' not in material or
+            'diffuse' not in material or
+            'specular' not in material or
+            'shine' not in material):
+            raise ValueError('material requires ambient, diffuse, \
+                              specular, and shine values')
+
+        self._data['material_properties'] = material
         self._cache.verify()
 
     def _get_colors(self,
