@@ -442,6 +442,7 @@ def slice_mesh_plane(mesh,
     signs = np.zeros(mesh.faces.shape, dtype=np.int8)
     signs[dots < -tol.merge] = 1
     signs[dots > tol.merge] = -1
+    signs[np.logical_and(dots >= -tol.merge, dots <= tol.merge)] = 0
 
     # Find all triangles that intersect this plane
     # onedge <- indices of all triangles intersecting the plane
@@ -451,8 +452,9 @@ def slice_mesh_plane(mesh,
 
     onedge = np.logical_and(signs_asum >= 2,
                             np.abs(signs_sum) <= 1)
-    inside = np.logical_or(signs_sum == -3,
-                           np.logical_and(signs_sum == -1, signs_asum == 1))
+    inside = np.logical_or(np.logical_or(signs_sum == -3,
+                           np.logical_and(signs_sum == -1, signs_asum == 1)),
+                           signs_asum == 0)
 
     # Automatically include all faces that are "inside"
     new_faces = mesh.faces[inside]
